@@ -2,7 +2,7 @@
  * amux — Backlog
  *
  * Lightweight ordered work queue for multi-agent projects.
- * Each entry is a BacklogItem with auto-incrementing TASK-* IDs.
+ * Each entry is a BacklogItem with type-prefixed IDs (TASK-*, INIT-*, BUG-*, etc.).
  * Array order = priority (first item = highest priority).
  *
  * File per session:
@@ -15,11 +15,12 @@ import {
   atomicWriteJson,
   withJsonFile,
 } from "./storage.ts";
+import { existsSync, readFileSync } from "node:fs";
 
 // ─── Types ───────────────────────────────────────────────────
 
 export interface BacklogItem {
-  id: string; // "TASK-01" auto-incrementing
+  id: string; // e.g. "TASK-01", "INIT-01", "BUG-01"
   title: string;
   description?: string;
   itemType?: "task" | "initiative" | "milestone" | "bug" | "chore" | "spec";
@@ -36,6 +37,7 @@ export interface BacklogItem {
   blockedReason?: string;
   parentId?: string; // parent item ID for hierarchy
   order?: number; // sort order within siblings
+  specPath?: string; // relative path to spec/plan file under artifacts/project/
 }
 
 /** @deprecated Use BacklogItem. Preserved for backward compatibility. */
@@ -152,4 +154,72 @@ export async function updateTask(
     return tasks;
   });
   return found;
+}
+
+// ─── Spec / Plan Helpers ──────────────────────────────────
+
+const SPEC_MAX_PREVIEW = 2048;
+
+/** Conventional relative path for a backlog item spec under artifacts/project/. */
+export function specRelativePath(itemId: string): string {
+  return `tasks/${itemId}.md`;
+}
+
+/** Resolve a spec relative path to a full session path. */
+export function specFullPath(session: string, relativePath: string): string {
+  const normalized = relativePath.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    normalized.startsWith("/") ||
+    normalized.includes("\0") ||
+    segments.length === 0 ||
+    segments.includes("..")
+  ) {
+    throw new Error(`Invalid spec path: ${relativePath}`);
+  }
+  return sessionFile(session, "artifacts", "project", ...segments);
+}
+
+/** Generate a default markdown spec template for a backlog item. */
+export function defaultSpecTemplate(item: BacklogItem): string {
+  const typeLabel = item.itemType && item.itemType !== "task" ? ` (${item.itemType})` : "";
+  return [
+    `# ${item.id}: ${item.title}${typeLabel}`,
+    "",
+    "## Objective",
+    "",
+    "## Approach",
+    "",
+    "## Acceptance Criteria",
+    "",
+    "## Notes",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Read a spec file preview with a size guard.
+ * Returns null if the file doesn’t exist or is empty.
+ */
+export function readSpecPreview(
+  session: string,
+  relativePath: string,
+  maxChars: number = SPEC_MAX_PREVIEW,
+): string | null {
+  let path: string;
+  try {
+    path = specFullPath(session, relativePath);
+  } catch {
+    return null;
+  }
+  if (!existsSync(path)) return null;
+  try {
+    let content = readFileSync(path, "utf8").trim();
+    if (content.length > maxChars) {
+      content = content.slice(0, maxChars) + "\n\n[truncated]";
+    }
+    return content || null;
+  } catch {
+    return null;
+  }
 }

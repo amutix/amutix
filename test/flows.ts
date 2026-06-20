@@ -58,6 +58,10 @@ import {
   updateTask,
   unmetDependencies,
   ITEM_TYPE_PREFIX,
+  specRelativePath,
+  specFullPath,
+  defaultSpecTemplate,
+  readSpecPreview,
 } from "../core/backlog.ts";
 
 import {
@@ -1616,5 +1620,79 @@ describe("Type-prefixed item IDs", () => {
     assert.equal(ITEM_TYPE_PREFIX["milestone"], "MS");
     assert.equal(ITEM_TYPE_PREFIX["chore"], "CHORE");
     assert.equal(ITEM_TYPE_PREFIX["spec"], "SPEC");
+  });
+});
+
+describe("Task spec helpers", () => {
+  const session = testSession("spec-helpers");
+  after(() => cleanupSession(session));
+
+  it("specRelativePath returns conventional path format", () => {
+    assert.equal(specRelativePath("TASK-01"), "tasks/TASK-01.md");
+    assert.equal(specRelativePath("BUG-03"), "tasks/BUG-03.md");
+  });
+
+  it("specFullPath resolves to session artifacts directory", () => {
+    const full = specFullPath(session, "tasks/TASK-01.md");
+    assert.ok(full.includes(session));
+    assert.ok(full.endsWith("artifacts/project/tasks/TASK-01.md"));
+  });
+
+  it("specFullPath rejects paths outside project artifacts", () => {
+    assert.throws(() => specFullPath(session, "../backlog.json"), /Invalid spec path/);
+    assert.throws(() => specFullPath(session, "/tmp/spec.md"), /Invalid spec path/);
+    assert.equal(readSpecPreview(session, "../backlog.json"), null);
+  });
+
+  it("defaultSpecTemplate includes item details", async () => {
+    const item = await addTask(session, {
+      title: "Build login", status: "todo", itemType: "bug",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const tmpl = defaultSpecTemplate(item);
+    assert.ok(tmpl.includes(item.id));
+    assert.ok(tmpl.includes("Build login"));
+    assert.ok(tmpl.includes("(bug)"));
+    assert.ok(tmpl.includes("## Objective"));
+    assert.ok(tmpl.includes("## Acceptance Criteria"));
+  });
+
+  it("readSpecPreview returns null for non-existent file", () => {
+    assert.equal(readSpecPreview(session, "tasks/NONEXISTENT.md"), null);
+  });
+
+  it("readSpecPreview reads file content", () => {
+    const relPath = specRelativePath("TASK-99");
+    const fullPath = specFullPath(session, relPath);
+    const dir = fullPath.replace(/\/[^/]+$/, "");
+    mkDir(dir, { recursive: true });
+    writeFileSync(fullPath, "# Test Spec\n\nSome content.", "utf8");
+
+    const preview = readSpecPreview(session, relPath);
+    assert.ok(preview);
+    assert.ok(preview!.includes("Test Spec"));
+    assert.ok(preview!.includes("Some content"));
+  });
+
+  it("readSpecPreview truncates large content", () => {
+    const relPath = specRelativePath("TASK-BIG");
+    const fullPath = specFullPath(session, relPath);
+    writeFileSync(fullPath, "x".repeat(5000), "utf8");
+
+    const preview = readSpecPreview(session, relPath, 100);
+    assert.ok(preview);
+    assert.ok(preview!.length < 200);
+    assert.ok(preview!.includes("[truncated]"));
+  });
+
+  it("specPath persists on BacklogItem", async () => {
+    const item = await addTask(session, {
+      title: "With spec", status: "todo",
+      specPath: specRelativePath("TASK-42"),
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(item.specPath, "tasks/TASK-42.md");
+    const read = await getTask(session, item.id);
+    assert.equal(read!.specPath, "tasks/TASK-42.md");
   });
 });
