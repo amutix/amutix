@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Hierarchical progress view**: `/amux progress` and `amux_task summary` render parent/child backlog structure with status markers and child progress counts.
+- **Type-prefixed backlog IDs**: new items use prefixes such as `INIT-*`, `MS-*`, `BUG-*`, `CHORE-*`, `SPEC-*`, and `TASK-*` while preserving existing IDs.
+- **Task-linked specs foundation**: backlog items can link first-class specs via `specPath`, with safe path helpers, templates, previews, and `plan`/`edit-plan` tool actions.
+
+### Changed
+
+- Backlog guidance now treats initiatives/milestones as context containers and executable child items as assignable work.
+- Agents can be assigned future leaf work up front; dependencies and pick flow gate when work actually starts.
+- Nested Pi package metadata is aligned with the root package and declares ESM mode.
+
 ## 1.1.0 (2026-06-20)
 
 ### Added
