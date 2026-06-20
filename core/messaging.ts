@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import {
   sessionFile,
@@ -179,7 +179,7 @@ export function watchInbox(
   });
 }
 
-/** Generate a unique message ID. */
+/** Generate a unique message ID (128-bit UUID). */
 export function newMessageId(): string {
-  return randomBytes(4).toString("hex");
+  return randomUUID();
 }

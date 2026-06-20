@@ -10,7 +10,7 @@
  *   config.json  — session config (default model, etc.)
  */
 
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import {
   sessionFile,
@@ -80,14 +80,26 @@ async function writeRegistry(session: string, data: Registry): Promise<void> {
   await atomicWriteJson(registryPath(session), data);
 }
 
-/** Generate a new agent UUID. */
+/** Generate a new agent UUID (128-bit, standard format). */
 export function newAgentId(): string {
-  return randomBytes(4).toString("hex");
+  return randomUUID();
 }
 
-/** Register or update an agent in the registry. */
+/**
+ * Register or update an agent in the registry.
+ * Rejects duplicate names within the same session (case-insensitive).
+ */
 export async function registerAgent(session: string, agent: AgentInfo): Promise<void> {
   await withJsonFile<Registry>(registryPath(session), {}, (registry) => {
+    const nameLower = agent.name.toLowerCase();
+    for (const existing of Object.values(registry)) {
+      if (existing.id !== agent.id && existing.name.toLowerCase() === nameLower) {
+        throw new Error(
+          `Duplicate agent name: "${agent.name}" already exists in session ` +
+          `(as "${existing.name}"). Names must be unique within a session (case-insensitive).`
+        );
+      }
+    }
     registry[agent.id] = agent;
     return registry;
   });
@@ -101,7 +113,10 @@ export async function removeAgent(session: string, id: string): Promise<void> {
   });
 }
 
-/** Update specific fields of an agent. */
+/**
+ * Update specific fields of an agent.
+ * If the name is being changed, enforces uniqueness (case-insensitive).
+ */
 export async function updateAgent(
   session: string,
   id: string,
@@ -109,7 +124,20 @@ export async function updateAgent(
 ): Promise<void> {
   await withJsonFile<Registry>(registryPath(session), {}, (registry) => {
     const agent = registry[id];
-    if (agent) Object.assign(agent, updates);
+    if (!agent) return registry;
+    // Enforce name uniqueness on rename
+    if (updates.name && updates.name.toLowerCase() !== agent.name.toLowerCase()) {
+      const nameLower = updates.name.toLowerCase();
+      for (const existing of Object.values(registry)) {
+        if (existing.id !== id && existing.name.toLowerCase() === nameLower) {
+          throw new Error(
+            `Duplicate agent name: "${updates.name}" already exists in session ` +
+            `(as "${existing.name}"). Names must be unique within a session (case-insensitive).`
+          );
+        }
+      }
+    }
+    Object.assign(agent, updates);
     return registry;
   });
 }
@@ -147,13 +175,14 @@ export async function updateHeartbeat(
 
 // ─── Lookups ─────────────────────────────────────────────────
 
-/** Find an agent by name within a session. */
+/** Find an agent by name within a session (case-insensitive). */
 export async function findByName(
   session: string,
   name: string
 ): Promise<AgentInfo | null> {
   const registry = await readRegistry(session);
-  return Object.values(registry).find((a) => a.name === name) ?? null;
+  const nameLower = name.toLowerCase();
+  return Object.values(registry).find((a) => a.name.toLowerCase() === nameLower) ?? null;
 }
 
 /** Find an agent by UUID within a session. */

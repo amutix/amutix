@@ -718,3 +718,92 @@ describe("Reservation boundary semantics (integration)", () => {
     assert.equal(normalized, "src/auth");
   });
 });
+
+describe("Agent and message ID format", () => {
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it("newAgentId returns a standard v4 UUID", () => {
+    const id = newAgentId();
+    assert.match(id, UUID_REGEX, `Expected UUID v4, got: ${id}`);
+  });
+
+  it("newMessageId returns a standard v4 UUID", () => {
+    const id = newMessageId();
+    assert.match(id, UUID_REGEX, `Expected UUID v4, got: ${id}`);
+  });
+
+  it("generated IDs are unique", () => {
+    const ids = new Set(Array.from({ length: 100 }, () => newAgentId()));
+    assert.equal(ids.size, 100, "Expected 100 unique IDs");
+  });
+});
+
+describe("Agent name uniqueness", () => {
+  const session = testSession("name-uniq");
+  after(() => cleanupSession(session));
+
+  it("rejects duplicate agent name on create", async () => {
+    await registerAgent(session, {
+      id: newAgentId(), name: "Alice", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await assert.rejects(
+      () => registerAgent(session, {
+        id: newAgentId(), name: "Alice", session,
+        role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+        registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+      }),
+      /Duplicate agent name/
+    );
+  });
+
+  it("rejects case-insensitive duplicates", async () => {
+    await assert.rejects(
+      () => registerAgent(session, {
+        id: newAgentId(), name: "alice", session,
+        role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+        registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+      }),
+      /Duplicate agent name/
+    );
+  });
+
+  it("allows re-registration with the same ID (update)", async () => {
+    const existingAgent = await findByName(session, "Alice");
+    assert.ok(existingAgent);
+    await registerAgent(session, { ...existingAgent!, role: "architect" });
+    const updated = await findByName(session, "Alice");
+    assert.equal(updated!.role, "architect");
+  });
+
+  it("rejects duplicate name on rename via updateAgent", async () => {
+    const id2 = newAgentId();
+    await registerAgent(session, {
+      id: id2, name: "Bob", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await assert.rejects(
+      () => updateAgent(session, id2, { name: "Alice" }),
+      /Duplicate agent name/
+    );
+    const bob = await findById(session, id2);
+    assert.equal(bob!.name, "Bob");
+  });
+
+  it("allows non-name updates without triggering uniqueness check", async () => {
+    const bob = await findByName(session, "Bob");
+    await updateAgent(session, bob!.id, { status: "online" });
+    const updated = await findById(session, bob!.id);
+    assert.equal(updated!.status, "online");
+    assert.equal(updated!.name, "Bob");
+  });
+
+  it("allows renaming to a completely different name", async () => {
+    const bob = await findByName(session, "Bob");
+    await updateAgent(session, bob!.id, { name: "Charlie" });
+    const renamed = await findById(session, bob!.id);
+    assert.equal(renamed!.name, "Charlie");
+  });
+});

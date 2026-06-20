@@ -133,7 +133,7 @@ cd ~/myapp-agent1 && pi
 
 - **Framework-agnostic core** -- works with any agent framework, not just Pi
 - **Zero overhead** -- invisible until you opt in
-- **UUID identity** -- agents persist across restarts
+- **UUID identity** -- 128-bit UUIDs, unique names per session (case-insensitive), agents persist across restarts
 - **Crash-safe messaging** -- messages survive crashes, delivered on reconnect
 - **File reservations** -- claim files before editing, prevent conflicts
 - **Task backlog** -- assign/pick/done with auto file reservation

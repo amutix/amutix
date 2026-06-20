@@ -1735,7 +1735,13 @@ export default function (pi: ExtensionAPI) {
         registeredAt: new Date().toISOString(),
         lastHeartbeat: new Date().toISOString(),
       };
-      await registerAgent(session, agent);
+      try {
+        await registerAgent(session, agent);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(msg, "error");
+        return;
+      }
 
       let msg = `Agent "${name}" created (offline).`;
       if (roleName) msg += `\nRole: ${roleName}`;
@@ -1766,8 +1772,13 @@ export default function (pi: ExtensionAPI) {
     } else if (action === "Rename") {
       const newName = await ctx.ui.input("New name:", agent.name);
       if (!newName || newName === agent.name) { ctx.ui.notify("Cancelled.", "info"); return; }
-      await updateAgent(session, agent.id, { name: newName });
-      ctx.ui.notify(`Renamed "${agent.name}" to "${newName}".`, "info");
+      try {
+        await updateAgent(session, agent.id, { name: newName });
+        ctx.ui.notify(`Renamed "${agent.name}" to "${newName}".`, "info");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(msg, "error");
+      }
     }
   }
 
