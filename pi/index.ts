@@ -1611,9 +1611,9 @@ export default function (pi: ExtensionAPI) {
           const parentDir = dn(config.mainRepo);
           const defaultPath = `${parentDir}/${repoName}-${name}`;
 
-          const wsInput = await ctx.ui.input("Worktree path:", defaultPath);
-          if (wsInput === undefined || wsInput === null) { ctx.ui.notify("Cancelled.", "info"); return; }
-          wsPath = wsInput || defaultPath;
+          const wsInput = await ctx.ui.editor("Worktree path:", defaultPath);
+          if (!wsInput?.trim()) { ctx.ui.notify("Cancelled.", "info"); return; }
+          wsPath = wsInput.trim();
         } else if (wsChoice === "Use current directory") {
           wsPath = ctx.cwd;
         }
