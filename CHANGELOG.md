@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Configurable storage root**: `AMUX_SESSIONS_DIR` and `AMUX_HOME` are honored consistently by core and Pi adapter.
+- **Safe file-backed writes**: coordinated JSON read-modify-write with lock files prevents lost updates across agents.
+- **Agent identity hardening**: generated agent/message IDs now use UUIDs; agent names are unique per session, case-insensitively.
+- **Heartbeat presence**: stale online agents expire after 90s and no longer block joins/reservations.
+- **Agent availability**: agents can be `idle`, `working`, `focus`, or `away`; task lifecycle auto-updates availability where safe.
+- **Generic attention signals**: idle agents receive coalesced state-change nudges without task details; task state remains authoritative.
+- **Task-scoped discussion**: `amux_task show` and `amux_task comment` store per-task comment/activity history in `task-comments/<TASK-ID>.jsonl`.
+- **State-derived task workflow**: task assignment no longer sends task-detail inbox messages; prompts/status derive current active/assigned task state.
+- **Backlog structure foundation**: internal `BacklogItem` model with `itemType`, `parentId`, and `order` fields while preserving `Task` compatibility.
+- **Task dependencies and batch assignment**: `dependsOn` gates picking, and comma-separated task IDs assign multiple items in one operation.
+- **Direct setup shortcuts**: `/amux new project|agent|role` for agent-friendly project setup.
+- **Project context commands**: `/amux context show|edit|set|append|clear|path` manages prompt-injected `CONTEXT.md`.
+- **Workspace safety**: sanitized worktree branch names and workspace sync/status compare against `origin/<mainBranch>`.
+
+### Changed
+
+- Task-related coordination should use backlog state and task comments; `amux_send` is now documented as exceptional non-task communication.
+- Reservation path matching is boundary-aware and handles workspace-relative normalization.
+- Tests are portable via Node's built-in type stripping and no longer depend on hardcoded global Pi paths.
+
 ## 1.0.0 (2026-06-20)
 
 Initial release.
