@@ -62,6 +62,7 @@ import {
   specFullPath,
   defaultSpecTemplate,
   readSpecPreview,
+  planTaskSpec,
 } from "../core/backlog.ts";
 
 import {
@@ -1694,6 +1695,52 @@ describe("Task spec helpers", () => {
     assert.equal(item.specPath, "tasks/TASK-42.md");
     const read = await getTask(session, item.id);
     assert.equal(read!.specPath, "tasks/TASK-42.md");
+  });
+
+  it("planTaskSpec creates a default spec and links specPath", async () => {
+    const item = await addTask(session, {
+      title: "Needs a plan", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+
+    const result = await planTaskSpec(session, item);
+
+    assert.equal(result.specPath, specRelativePath(item.id));
+    assert.equal(result.created, true);
+    assert.equal(result.linked, true);
+    assert.ok(existsSync(result.fullPath));
+    assert.ok(readF(result.fullPath, "utf8").includes("Needs a plan"));
+    const updated = await getTask(session, item.id);
+    assert.equal(updated!.specPath, result.specPath);
+  });
+
+  it("planTaskSpec preserves existing specs when no content is provided", async () => {
+    const item = await addTask(session, {
+      title: "Preserve plan", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const first = await planTaskSpec(session, item, "# Custom\n");
+    const updated = await getTask(session, item.id);
+
+    const second = await planTaskSpec(session, updated!);
+
+    assert.equal(second.created, false);
+    assert.equal(readF(first.fullPath, "utf8"), "# Custom\n");
+  });
+
+  it("planTaskSpec updates existing specs with provided content", async () => {
+    const item = await addTask(session, {
+      title: "Update plan", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const first = await planTaskSpec(session, item);
+    const updated = await getTask(session, item.id);
+
+    const second = await planTaskSpec(session, updated!, "# Updated\n");
+
+    assert.equal(second.fullPath, first.fullPath);
+    assert.equal(second.updated, true);
+    assert.equal(readF(second.fullPath, "utf8"), "# Updated\n");
   });
 
   // Manual test for plan/edit-plan actions:

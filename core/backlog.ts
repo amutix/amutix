@@ -15,7 +15,8 @@ import {
   atomicWriteJson,
   withJsonFile,
 } from "./storage.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -222,4 +223,55 @@ export function readSpecPreview(
   } catch {
     return null;
   }
+}
+
+export interface PlanTaskSpecResult {
+  specPath: string;
+  fullPath: string;
+  created: boolean;
+  updated: boolean;
+  linked: boolean;
+  preview: string | null;
+}
+
+/**
+ * Create, update, or link a first-class task spec.
+ *
+ * If content is provided, writes it. If content is omitted and the spec already
+ * exists, preserves the existing file. If no spec exists, creates the default
+ * template. Links item.specPath in the backlog when missing.
+ */
+export async function planTaskSpec(
+  session: string,
+  item: BacklogItem,
+  content?: string,
+): Promise<PlanTaskSpecResult> {
+  const linked = !item.specPath;
+  const specPath = item.specPath || specRelativePath(item.id);
+  const fullPath = specFullPath(session, specPath);
+  const existed = existsSync(fullPath);
+
+  mkdirSync(dirname(fullPath), { recursive: true });
+
+  let wrote = false;
+  if (content !== undefined) {
+    writeFileSync(fullPath, content, "utf8");
+    wrote = true;
+  } else if (!existed) {
+    writeFileSync(fullPath, defaultSpecTemplate(item), "utf8");
+    wrote = true;
+  }
+
+  if (linked) {
+    await updateTask(session, item.id, { specPath });
+  }
+
+  return {
+    specPath,
+    fullPath,
+    created: !existed,
+    updated: wrote && existed,
+    linked,
+    preview: readSpecPreview(session, specPath, 500),
+  };
 }

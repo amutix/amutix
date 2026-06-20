@@ -17,7 +17,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   getSessionsDir,
   sessionDir,
@@ -82,10 +82,8 @@ import {
   getTask,
   nextTaskId,
   unmetDependencies,
-  specRelativePath,
-  specFullPath,
-  defaultSpecTemplate,
   readSpecPreview,
+  planTaskSpec,
 } from "../core/backlog";
 import {
   appendEntry as addJournalEntry,
@@ -1132,33 +1130,15 @@ export default function (pi: ExtensionAPI) {
           const task = await getTask(mySession, params.id);
           if (!task) throw new Error(`Task ${params.id} not found.`);
 
-          const hadSpecPath = Boolean(task.specPath);
-          const relPath = task.specPath || specRelativePath(params.id);
-          const fullPath = specFullPath(mySession, relPath);
-          const existed = existsSync(fullPath);
-
-          mkdirSync(dirname(fullPath), { recursive: true });
-
-          if (params.content !== undefined) {
-            writeFileSync(fullPath, params.content, "utf8");
-          } else if (!existed) {
-            writeFileSync(fullPath, defaultSpecTemplate(task), "utf8");
-          }
-
-          // Link specPath if not already set
-          if (!task.specPath) {
-            await updateTask(mySession, params.id, { specPath: relPath });
-          }
-
-          const preview = readSpecPreview(mySession, relPath, 500);
-          const verb = params.content !== undefined || existed ? "updated" : "created";
-          const linkNote = hadSpecPath ? "" : "\nLinked specPath on backlog item.";
+          const result = await planTaskSpec(mySession, task, params.content);
+          const verb = result.updated ? "updated" : result.created ? "created" : "ready";
+          const linkNote = result.linked ? "\nLinked specPath on backlog item." : "";
           return {
             content: [{
               type: "text",
-              text: `Spec ${verb}: ${fullPath}${linkNote}\n\n${preview || "(empty)"}`,
+              text: `Spec ${verb}: ${result.fullPath}${linkNote}\n\n${result.preview || "(empty)"}`,
             }],
-            details: { taskId: params.id, specPath: relPath, fullPath },
+            details: { taskId: params.id, specPath: result.specPath, fullPath: result.fullPath },
           };
         }
 
@@ -1170,24 +1150,14 @@ export default function (pi: ExtensionAPI) {
           const task = await getTask(mySession, params.id);
           if (!task) throw new Error(`Task ${params.id} not found.`);
 
-          const relPath = task.specPath || specRelativePath(params.id);
-          const fullPath = specFullPath(mySession, relPath);
-
-          // Create with default template if missing
-          if (!existsSync(fullPath)) {
-            mkdirSync(dirname(fullPath), { recursive: true });
-            writeFileSync(fullPath, defaultSpecTemplate(task), "utf8");
-            if (!task.specPath) {
-              await updateTask(mySession, params.id, { specPath: relPath });
-            }
-          }
+          const result = await planTaskSpec(mySession, task);
 
           return {
             content: [{
               type: "text",
-              text: `Spec path: ${fullPath}\n\nUse read/edit tools to modify the spec.`,
+              text: `Spec path: ${result.fullPath}\n\nUse read/edit tools to modify the spec.`,
             }],
-            details: { taskId: params.id, specPath: relPath, fullPath },
+            details: { taskId: params.id, specPath: result.specPath, fullPath: result.fullPath },
           };
         }
 
