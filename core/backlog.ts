@@ -13,6 +13,7 @@ import {
   sessionFile,
   readJson,
   atomicWriteJson,
+  withJsonFile,
 } from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -72,23 +73,24 @@ export function nextTaskId(tasks: Task[]): string {
 /**
  * Add a new task to the backlog.
  * Appends by default, prepends if urgent.
+ * Coordinated to prevent lost updates under concurrent writes.
  */
 export async function addTask(
   session: string,
   taskData: Omit<Task, "id">,
   urgent?: boolean
 ): Promise<Task> {
-  const tasks = await readBacklog(session);
-  const id = nextTaskId(tasks);
-  const task: Task = { id, ...taskData };
-
-  if (urgent) {
-    tasks.unshift(task);
-  } else {
-    tasks.push(task);
-  }
-
-  await writeBacklog(session, tasks);
+  let task!: Task;
+  await withJsonFile<Backlog>(backlogPath(session), [], (tasks) => {
+    const id = nextTaskId(tasks);
+    task = { id, ...taskData };
+    if (urgent) {
+      tasks.unshift(task);
+    } else {
+      tasks.push(task);
+    }
+    return tasks;
+  });
   return task;
 }
 
@@ -101,17 +103,21 @@ export async function getTask(session: string, id: string): Promise<Task | null>
 /**
  * Update a task by ID with partial fields.
  * Automatically sets updatedAt.
+ * Coordinated to prevent lost updates under concurrent writes.
  */
 export async function updateTask(
   session: string,
   id: string,
   updates: Partial<Task>
 ): Promise<Task | null> {
-  const tasks = await readBacklog(session);
-  const task = tasks.find((t) => t.id === id);
-  if (!task) return null;
-
-  Object.assign(task, updates, { updatedAt: new Date().toISOString() });
-  await writeBacklog(session, tasks);
-  return task;
+  let found: Task | null = null;
+  await withJsonFile<Backlog>(backlogPath(session), [], (tasks) => {
+    const task = tasks.find((t) => t.id === id);
+    if (task) {
+      Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+      found = task;
+    }
+    return tasks;
+  });
+  return found;
 }

@@ -547,3 +547,67 @@ describe("Agent-to-agent messaging", () => {
     confirmDelivered(session, agentB);
   });
 });
+
+describe("Concurrent write coordination", () => {
+  const session = testSession("concurrent");
+  after(() => cleanupSession(session));
+
+  it("concurrent addTask does not lose entries", async () => {
+    const N = 20;
+    const promises = Array.from({ length: N }, (_, i) =>
+      addTask(session, {
+        title: `Task ${i}`, status: "todo", createdBy: "Test",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      })
+    );
+    const tasks = await Promise.all(promises);
+
+    const backlog = await readBacklog(session);
+    assert.equal(backlog.length, N, `Expected ${N} tasks, got ${backlog.length}`);
+
+    // All IDs should be unique
+    const ids = new Set(tasks.map((t) => t.id));
+    assert.equal(ids.size, N, `Expected ${N} unique IDs, got ${ids.size}`);
+  });
+
+  it("concurrent registerAgent does not lose entries", async () => {
+    const N = 20;
+    const agentIds = Array.from({ length: N }, () => newAgentId());
+    const promises = agentIds.map((id, i) =>
+      registerAgent(session, {
+        id, name: `Agent${i}`, session,
+        role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+        registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+      })
+    );
+    await Promise.all(promises);
+
+    const registry = await readRegistry(session);
+    const count = Object.keys(registry).length;
+    assert.equal(count, N, `Expected ${N} agents, got ${count}`);
+  });
+
+  it("concurrent reserve (non-overlapping) does not lose entries", async () => {
+    const N = 15;
+    const promises = Array.from({ length: N }, (_, i) =>
+      reserve(session, [`file-${i}.ts`], `agent-${i}`, `Agent${i}`)
+    );
+    await Promise.all(promises);
+
+    const reservations = await getReservations(session);
+    const count = Object.keys(reservations).length;
+    assert.equal(count, N, `Expected ${N} reservations, got ${count}`);
+  });
+
+  it("concurrent addRole does not lose entries", async () => {
+    const N = 10;
+    const promises = Array.from({ length: N }, (_, i) =>
+      addRole(session, { name: `role-${i}`, instructions: `Role ${i} instructions` })
+    );
+    await Promise.all(promises);
+
+    const roles = await readRoles(session);
+    const count = Object.keys(roles).length;
+    assert.equal(count, N, `Expected ${N} roles, got ${count}`);
+  });
+});

@@ -13,7 +13,7 @@
  * can override the root at any point before calling core functions.
  */
 
-import { readFile, writeFile, rename, mkdir, readdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, readdir, open, stat, unlink } from "node:fs/promises";
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -105,6 +105,91 @@ export function appendJsonlSync(path: string, entry: unknown): void {
 /** Ensure a directory exists (synchronous). */
 export function ensureDirSync(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
+}
+
+// ─── Coordinated Read-Modify-Write ──────────────────────────
+
+const LOCK_STALE_MS = 30_000; // consider lock stale after 30s
+const LOCK_MAX_RETRIES = 20;
+const LOCK_RETRY_BASE_MS = 15; // base retry delay (jittered)
+
+/**
+ * Acquire an exclusive lock file using O_CREAT|O_EXCL (atomic on all platforms).
+ * Retries with jittered backoff. Forcibly removes stale locks.
+ */
+async function acquireLock(lockPath: string): Promise<void> {
+  for (let attempt = 0; attempt <= LOCK_MAX_RETRIES; attempt++) {
+    try {
+      // 'wx' = O_CREAT | O_EXCL | O_WRONLY — fails atomically if file exists
+      const fh = await open(lockPath, "wx");
+      await fh.close();
+      return;
+    } catch (e: any) {
+      if (e.code !== "EEXIST") throw e;
+
+      // Check for stale lock (e.g. process crashed while holding it)
+      try {
+        const s = await stat(lockPath);
+        if (Date.now() - s.mtimeMs > LOCK_STALE_MS) {
+          try {
+            await unlink(lockPath);
+          } catch {
+            /* another process may have cleaned it */
+          }
+          continue; // retry immediately after removing stale lock
+        }
+      } catch {
+        // Lock was released between our check — retry
+        continue;
+      }
+
+      if (attempt === LOCK_MAX_RETRIES) {
+        throw new Error(`Failed to acquire lock: ${lockPath} (after ${LOCK_MAX_RETRIES} retries)`);
+      }
+
+      // Wait with jitter before retrying
+      const delay = LOCK_RETRY_BASE_MS + Math.random() * LOCK_RETRY_BASE_MS;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
+async function releaseLock(lockPath: string): Promise<void> {
+  try {
+    await unlink(lockPath);
+  } catch {
+    // Already cleaned up
+  }
+}
+
+/**
+ * Perform a coordinated read-modify-write on a JSON file.
+ *
+ * Acquires an exclusive lock, reads the current state, passes it to
+ * the `mutate` callback, writes the result atomically, and releases
+ * the lock. If `mutate` throws, the file is left unchanged and the
+ * error propagates to the caller.
+ *
+ * Safe for concurrent calls from multiple agents/processes operating
+ * on the same session file.
+ */
+export async function withJsonFile<T>(
+  path: string,
+  fallback: T,
+  mutate: (data: T) => T | Promise<T>,
+): Promise<T> {
+  const lockPath = path + ".lock";
+  // Ensure parent directory exists before lock attempt
+  await mkdir(dirname(path), { recursive: true });
+  await acquireLock(lockPath);
+  try {
+    const data = await readJson<T>(path, fallback);
+    const result = await mutate(data);
+    await atomicWriteJson(path, result);
+    return result;
+  } finally {
+    await releaseLock(lockPath);
+  }
 }
 
 // ─── Session Discovery ──────────────────────────────────────

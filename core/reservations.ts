@@ -17,6 +17,7 @@ import {
   sessionFile,
   readJson,
   atomicWriteJson,
+  withJsonFile,
 } from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -88,6 +89,7 @@ async function writeReservations(session: string, data: ReservationsMap): Promis
  *
  * Rejects if any requested path overlaps with an existing reservation
  * from a different agent (unless that reservation is stale).
+ * Conflict check and write happen under the same lock.
  *
  * @returns List of paths successfully reserved.
  * @throws Error if any path conflicts with a live reservation from another agent.
@@ -100,42 +102,43 @@ export async function reserve(
   reason?: string,
   onlineAgentIds?: string[]
 ): Promise<string[]> {
-  const reservations = await getReservations(session);
   const normalizedPaths = paths.map(normalizePath);
   const now = new Date().toISOString();
 
-  // Check for conflicts with other agents
-  for (const requestedPath of normalizedPaths) {
-    for (const [existingPath, reservation] of Object.entries(reservations)) {
-      if (reservation.agentId === agentId) continue; // no self-conflict
-      if (!pathsOverlap(requestedPath, existingPath)) continue;
+  await withJsonFile<ReservationsMap>(reservationsPath(session), {}, (reservations) => {
+    // Check for conflicts with other agents
+    for (const requestedPath of normalizedPaths) {
+      for (const [existingPath, reservation] of Object.entries(reservations)) {
+        if (reservation.agentId === agentId) continue; // no self-conflict
+        if (!pathsOverlap(requestedPath, existingPath)) continue;
 
-      // Check if the conflicting reservation is stale (agent offline)
-      const isStale = onlineAgentIds
-        ? !onlineAgentIds.includes(reservation.agentId)
-        : false;
+        // Check if the conflicting reservation is stale (agent offline)
+        const isStale = onlineAgentIds
+          ? !onlineAgentIds.includes(reservation.agentId)
+          : false;
 
-      if (!isStale) {
-        const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
-        throw new Error(
-          `Conflict: "${existingPath}" is reserved by ${reservation.agent}${reasonStr}. ` +
-            `Use amux_send('${reservation.agent}', ...) to coordinate.`
-        );
+        if (!isStale) {
+          const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
+          throw new Error(
+            `Conflict: "${existingPath}" is reserved by ${reservation.agent}${reasonStr}. ` +
+              `Use amux_send('${reservation.agent}', ...) to coordinate.`
+          );
+        }
       }
     }
-  }
 
-  // All clear — add reservations
-  for (const requestedPath of normalizedPaths) {
-    reservations[requestedPath] = {
-      agent: agentName,
-      agentId,
-      since: now,
-      reason,
-    };
-  }
+    // All clear — add reservations
+    for (const requestedPath of normalizedPaths) {
+      reservations[requestedPath] = {
+        agent: agentName,
+        agentId,
+        since: now,
+        reason,
+      };
+    }
+    return reservations;
+  });
 
-  await writeReservations(session, reservations);
   return normalizedPaths;
 }
 
@@ -149,21 +152,19 @@ export async function release(
   paths: string[],
   agentId: string
 ): Promise<string[]> {
-  const reservations = await getReservations(session);
   const normalizedPaths = paths.map(normalizePath);
   const released: string[] = [];
 
-  for (const requestedPath of normalizedPaths) {
-    const reservation = reservations[requestedPath];
-    if (reservation && reservation.agentId === agentId) {
-      delete reservations[requestedPath];
-      released.push(requestedPath);
+  await withJsonFile<ReservationsMap>(reservationsPath(session), {}, (reservations) => {
+    for (const requestedPath of normalizedPaths) {
+      const reservation = reservations[requestedPath];
+      if (reservation && reservation.agentId === agentId) {
+        delete reservations[requestedPath];
+        released.push(requestedPath);
+      }
     }
-  }
-
-  if (released.length > 0) {
-    await writeReservations(session, reservations);
-  }
+    return reservations;
+  });
 
   return released;
 }
@@ -205,20 +206,18 @@ export async function clearStaleReservations(
   session: string,
   onlineAgentIds: string[]
 ): Promise<number> {
-  const reservations = await getReservations(session);
   const onlineSet = new Set(onlineAgentIds);
   let removed = 0;
 
-  for (const [path, reservation] of Object.entries(reservations)) {
-    if (!onlineSet.has(reservation.agentId)) {
-      delete reservations[path];
-      removed++;
+  await withJsonFile<ReservationsMap>(reservationsPath(session), {}, (reservations) => {
+    for (const [path, reservation] of Object.entries(reservations)) {
+      if (!onlineSet.has(reservation.agentId)) {
+        delete reservations[path];
+        removed++;
+      }
     }
-  }
-
-  if (removed > 0) {
-    await writeReservations(session, reservations);
-  }
+    return reservations;
+  });
 
   return removed;
 }

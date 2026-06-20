@@ -17,6 +17,7 @@ import {
   readJson,
   atomicWriteJson,
   listSessions,
+  withJsonFile,
 } from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -86,16 +87,18 @@ export function newAgentId(): string {
 
 /** Register or update an agent in the registry. */
 export async function registerAgent(session: string, agent: AgentInfo): Promise<void> {
-  const registry = await readRegistry(session);
-  registry[agent.id] = agent;
-  await writeRegistry(session, registry);
+  await withJsonFile<Registry>(registryPath(session), {}, (registry) => {
+    registry[agent.id] = agent;
+    return registry;
+  });
 }
 
 /** Remove an agent entirely from the registry. */
 export async function removeAgent(session: string, id: string): Promise<void> {
-  const registry = await readRegistry(session);
-  delete registry[id];
-  await writeRegistry(session, registry);
+  await withJsonFile<Registry>(registryPath(session), {}, (registry) => {
+    delete registry[id];
+    return registry;
+  });
 }
 
 /** Update specific fields of an agent. */
@@ -104,11 +107,11 @@ export async function updateAgent(
   id: string,
   updates: Partial<AgentInfo>
 ): Promise<void> {
-  const registry = await readRegistry(session);
-  const agent = registry[id];
-  if (!agent) return;
-  Object.assign(agent, updates);
-  await writeRegistry(session, registry);
+  await withJsonFile<Registry>(registryPath(session), {}, (registry) => {
+    const agent = registry[id];
+    if (agent) Object.assign(agent, updates);
+    return registry;
+  });
 }
 
 /** Mark an agent as online with current pid/pane. */
@@ -216,17 +219,20 @@ export async function getRole(session: string, name: string): Promise<RoleDefini
 }
 
 export async function addRole(session: string, role: RoleDefinition): Promise<void> {
-  const roles = await readRoles(session);
-  roles[role.name] = role;
-  await writeRoles(session, roles);
+  await withJsonFile<RolesMap>(rolesPath(session), {}, (roles) => {
+    roles[role.name] = role;
+    return roles;
+  });
 }
 
 export async function removeRole(session: string, name: string): Promise<boolean> {
-  const roles = await readRoles(session);
-  if (!roles[name]) return false;
-  delete roles[name];
-  await writeRoles(session, roles);
-  return true;
+  let existed = false;
+  await withJsonFile<RolesMap>(rolesPath(session), {}, (roles) => {
+    existed = !!roles[name];
+    if (existed) delete roles[name];
+    return roles;
+  });
+  return existed;
 }
 
 // ─── Session Config ──────────────────────────────────────────
