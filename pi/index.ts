@@ -1548,13 +1548,13 @@ export default function (pi: ExtensionAPI) {
 
     const registry = await readRegistry(session);
     const allAgents = Object.values(registry);
-    const offlineAgents = allAgents.filter((a) => a.status === "offline");
 
     const NEW_AGENT = "+ New agent";
     const options = [
-      ...offlineAgents.map((a) => {
+      ...allAgents.map((a) => {
         const roleLabel = a.roleName ? ` (${a.roleName})` : "";
-        return `${a.name}${roleLabel}`;
+        const status = a.status === "online" ? " [online]" : "";
+        return `${a.name}${roleLabel}${status}`;
       }),
       NEW_AGENT,
     ];
@@ -1677,8 +1677,13 @@ export default function (pi: ExtensionAPI) {
 
     // Selected existing agent
     const selectedName = selected.split(" (")[0]!;
-    const agent = offlineAgents.find((a) => a.name === selectedName);
+    const agent = allAgents.find((a) => a.name === selectedName);
     if (!agent) return;
+
+    if (agent.status === "online") {
+      ctx.ui.notify(`Agent "${agent.name}" is online. They must /amux leave first to rename or delete.`, "warning");
+      return;
+    }
 
     const action = await ctx.ui.select(`Agent "${agent.name}":`, ["Rename", "Delete"]);
     if (!action) return;
