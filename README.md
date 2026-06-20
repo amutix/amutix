@@ -66,12 +66,37 @@ cd ~/myapp-agent1 && pi
 All commands are subcommands of `/amux`:
 
 | Command | Purpose |
-|---------|---------|
+|---------|--------|
 | `/amux` | Status and available commands |
 | `/amux join` | Join a project as an agent |
 | `/amux leave` | Leave project, return to solo mode |
-| `/amux manage` | Manage projects, agents, and roles |
+| `/amux manage` | Manage projects, agents, and roles (browse UI) |
+| `/amux new <type>` | Create project, agent, or role directly |
+| `/amux context` | Show/edit project context (CONTEXT.md) |
 | `/amux workspace` | Git workspace operations (sync, status) |
+
+### Shortcuts
+
+```bash
+/amux new project [name] [--repo current|<path>]
+/amux new agent [name] [--role <role>] [--workspace worktree|current|none] [--join]
+/amux new role [name]
+```
+
+Missing fields are prompted interactively.
+
+### Context
+
+```bash
+/amux context           # Show current project context
+/amux context edit      # Open editor to edit CONTEXT.md
+/amux context set <t>   # Replace project context
+/amux context append <t>  # Append to project context
+/amux context clear     # Clear project context
+/amux context path      # Print CONTEXT.md file path
+```
+
+Project context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts.
 
 ### Manage
 

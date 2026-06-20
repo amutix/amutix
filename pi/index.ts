@@ -16,7 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
-import { mkdirSync, readdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   getSessionsDir,
@@ -1356,9 +1356,13 @@ export default function (pi: ExtensionAPI) {
           return handleManage(ctx);
         case "workspace":
           return handleWorkspace(ctx);
+        case "new":
+          return handleNew(parts.slice(1), ctx);
+        case "context":
+          return handleContext(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux join       Join a project as an agent\n  /amux leave   Leave current project\n  /amux manage     Manage projects and agents\n  /amux workspace  Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux workspace     Git workspace setup and sync`,
             "warning"
           );
       }
@@ -1385,7 +1389,7 @@ export default function (pi: ExtensionAPI) {
     });
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join    Switch project or agent\n  /amux leave   Leave project\n  /amux manage     Manage projects and agents\n  /amux workspace  Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
   }
@@ -1989,6 +1993,248 @@ export default function (pi: ExtensionAPI) {
   }
 
 
+  // -- new command shortcuts ------------------------------------
+
+  async function handleNew(args: string[], ctx: ExtensionContext): Promise<void> {
+    const what = args[0];
+    switch (what) {
+      case "project": return handleNewProject(args.slice(1), ctx);
+      case "agent": return handleNewAgent(args.slice(1), ctx);
+      case "role": return handleNewRole(args.slice(1), ctx);
+      default:
+        ctx.ui.notify(
+          "Usage:\n  /amux new project [name]\n  /amux new agent [name] [--role <role>] [--workspace worktree|current|none] [--join]\n  /amux new role [name]",
+          "info"
+        );
+    }
+  }
+
+  async function handleNewProject(args: string[], ctx: ExtensionContext): Promise<void> {
+    const { positional, flags } = parseShortcutArgs(args);
+    let name = positional[0];
+    if (!name) {
+      name = await ctx.ui.input("Project name:");
+      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
+    }
+
+    if (existsSync(sessionDir(name))) {
+      ctx.ui.notify(`Project "${name}" already exists.`, "warning");
+      return;
+    }
+
+    const setRepo = flags.repo !== undefined
+      ? true
+      : await ctx.ui.confirm("Main repo?", "Set current directory as the main repo?");
+
+    mkdirSync(sessionDir(name), { recursive: true });
+
+    const config: SessionConfig = { createdAt: new Date().toISOString() };
+    if (setRepo) {
+      config.mainRepo = (typeof flags.repo === "string" && flags.repo !== "current") ? flags.repo : ctx.cwd;
+    }
+    await writeSessionConfig(name, config);
+
+    let msg = `Created project "${name}".`;
+    if (setRepo) msg += `\nMain repo: ${config.mainRepo}`;
+    msg += `\n\nNext: /amux new agent <name> --role <role>  or  /amux manage`;
+    ctx.ui.notify(msg, "info");
+  }
+
+  async function handleNewAgent(args: string[], ctx: ExtensionContext): Promise<void> {
+    const { positional, flags } = parseShortcutArgs(args);
+
+    const session = await resolveProjectForManage(ctx);
+    if (!session) return;
+
+    let name = positional[0];
+    if (!name) {
+      name = await ctx.ui.input("Agent name:");
+      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
+    }
+
+    // Role
+    let roleName: string | undefined = typeof flags.role === "string" ? flags.role : undefined;
+    let roleToAdd: RoleDefinition | undefined;
+    if (!roleName) {
+      const projectRoles = await readRoles(session);
+      const allRoles: RoleDefinition[] = [
+        ...Object.values(projectRoles),
+        ...BUILTIN_ROLES.filter((r) => !projectRoles[r.name]),
+      ];
+      if (allRoles.length > 0) {
+        const roleOptions = allRoles.map((r) => `${r.name} -- ${r.description || r.instructions.slice(0, 60)}`);
+        const roleChoice = await ctx.ui.select("Role:", roleOptions);
+        if (roleChoice) roleName = roleChoice.split(" -- ")[0]!;
+      }
+    }
+    if (roleName) {
+      const projectRoles = await readRoles(session);
+      if (!projectRoles[roleName]) {
+        roleToAdd = BUILTIN_ROLES.find((r) => r.name === roleName);
+      }
+    }
+
+    // Workspace
+    const wsType = typeof flags.workspace === "string" ? flags.workspace : "none";
+    let workspace: string | undefined;
+    const config = await readSessionConfig(session);
+
+    if (wsType === "worktree" && config.mainRepo) {
+      const { basename: bn, dirname: dn } = await import("node:path");
+      const repoName = bn(config.mainRepo);
+      const parentDir = dn(config.mainRepo);
+      const wsPath = `${parentDir}/${repoName}-${sanitizeBranchName(name)}`;
+      const branchName = `agent/${sanitizeBranchName(name)}`;
+
+      const result = await pi.exec("git", ["-C", config.mainRepo, "worktree", "add", wsPath, "-b", branchName], { timeout: 30000 });
+      if (result.code !== 0) {
+        const retry = await pi.exec("git", ["-C", config.mainRepo, "worktree", "add", wsPath, branchName], { timeout: 30000 });
+        if (retry.code !== 0) {
+          ctx.ui.notify(`Worktree failed: ${retry.stderr}\nAgent created without workspace.`, "warning");
+        } else {
+          workspace = wsPath;
+        }
+      } else {
+        workspace = wsPath;
+      }
+    } else if (wsType === "current") {
+      workspace = ctx.cwd;
+    } else if (wsType === "worktree" && !config.mainRepo) {
+      ctx.ui.notify("No main repo configured. Use /amux manage > Projects to set one.", "warning");
+    }
+
+    // Create
+    if (roleToAdd) await addRole(session, roleToAdd);
+
+    const agent: AgentInfo = {
+      id: newAgentId(),
+      name,
+      session,
+      role: roleName ?? `Agent ${name}`,
+      roleName,
+      workspace,
+      model: currentModelStr,
+      cwd: workspace || ctx.cwd,
+      pid: 0,
+      status: "offline",
+      registeredAt: new Date().toISOString(),
+      lastHeartbeat: new Date().toISOString(),
+    };
+
+    try {
+      await registerAgent(session, agent);
+    } catch (err) {
+      ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
+      return;
+    }
+
+    if (flags.join) {
+      if (myId && mySession) {
+        await goOffline(mySession, myId);
+        stopAgent();
+      }
+      mySession = session;
+      myId = agent.id;
+      myName = agent.name;
+      myRole = agent.role;
+      myRoleName = agent.roleName;
+      if (agent.roleName) await loadRoleInstructions(mySession, agent.roleName);
+      await updateAgent(mySession, myId, { cwd: ctx.cwd });
+      await startAgent(ctx);
+      if (agent.model) await trySetModel(ctx, agent.model);
+      ctx.ui.notify(`Created and joined "${session}" as "${name}".`, "info");
+    } else {
+      let msg = `Agent "${name}" created (offline).`;
+      if (roleName) msg += `\nRole: ${roleName}`;
+      if (workspace) msg += `\nWorkspace: ${workspace}`;
+      msg += `\nUse /amux join to start working as this agent.`;
+      ctx.ui.notify(msg, "info");
+    }
+  }
+
+  async function handleNewRole(args: string[], ctx: ExtensionContext): Promise<void> {
+    const session = await resolveProjectForManage(ctx);
+    if (!session) return;
+
+    let name = args[0];
+    if (!name) {
+      name = await ctx.ui.input("Role name:");
+      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
+    }
+
+    const desc = await ctx.ui.input("Short description:");
+    const instructions = await ctx.ui.editor("Instructions:", "");
+    if (!instructions?.trim()) { ctx.ui.notify("Cancelled (instructions required).", "info"); return; }
+
+    await addRole(session, { name, description: desc || undefined, instructions: instructions.trim() });
+    ctx.ui.notify(`Role "${name}" added to "${session}".`, "info");
+  }
+
+  // -- context command ------------------------------------------
+
+  async function handleContext(args: string[], ctx: ExtensionContext): Promise<void> {
+    if (!mySession) {
+      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      return;
+    }
+
+    ensureArtifactDirs();
+    const contextPath = join(projectArtifactsDir(), "CONTEXT.md");
+    const sub = args[0] || "show";
+
+    switch (sub) {
+      case "show": {
+        const content = readContextFile(projectArtifactsDir());
+        if (!content) {
+          ctx.ui.notify(`No project context set.\n\nUse /amux context edit  or  /amux context set <text>`, "info");
+        } else {
+          ctx.ui.notify(`Project context (${contextPath}):\n\n${content}`, "info");
+        }
+        break;
+      }
+      case "edit": {
+        const current = readContextFile(projectArtifactsDir()) || "";
+        const result = await ctx.ui.editor("Edit project context:", current);
+        if (result === null || result === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
+        writeFileSync(contextPath, result, "utf8");
+        ctx.ui.notify("Project context updated. Changes affect future agent prompts.", "info");
+        break;
+      }
+      case "set": {
+        const text = args.slice(1).join(" ").trim();
+        if (!text) { ctx.ui.notify("Usage: /amux context set <text>", "warning"); return; }
+        writeFileSync(contextPath, text, "utf8");
+        ctx.ui.notify("Project context set. Changes affect future agent prompts.", "info");
+        break;
+      }
+      case "append": {
+        const text = args.slice(1).join(" ").trim();
+        if (!text) { ctx.ui.notify("Usage: /amux context append <text>", "warning"); return; }
+        const current = readContextFile(projectArtifactsDir()) || "";
+        writeFileSync(contextPath, current + (current ? "\n\n" : "") + text, "utf8");
+        ctx.ui.notify("Appended to project context. Changes affect future agent prompts.", "info");
+        break;
+      }
+      case "clear": {
+        const confirm = await ctx.ui.confirm("Clear context?", "Remove all project context? This affects future agent prompts.");
+        if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
+        writeFileSync(contextPath, "", "utf8");
+        ctx.ui.notify("Project context cleared.", "info");
+        break;
+      }
+      case "path": {
+        ctx.ui.notify(contextPath, "info");
+        break;
+      }
+      default:
+        ctx.ui.notify(
+          "Usage:\n  /amux context           Show current context\n  /amux context edit      Open editor\n  /amux context set <t>   Replace context\n  /amux context append <t>  Append to context\n  /amux context clear     Clear context\n  /amux context path      Show file path",
+          "info"
+        );
+    }
+  }
+
+
   // -- Helpers --------------------------------------------------
 
   /**
@@ -2004,6 +2250,27 @@ export default function (pi: ExtensionAPI) {
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
       || "unnamed";
+  }
+
+  /** Parse shortcut command arguments into positional args and --flag values. */
+  function parseShortcutArgs(args: string[]): { positional: string[]; flags: Record<string, string | boolean> } {
+    const positional: string[] = [];
+    const flags: Record<string, string | boolean> = {};
+    for (let i = 0; i < args.length; i++) {
+      if (args[i]!.startsWith("--")) {
+        const key = args[i]!.slice(2);
+        const next = args[i + 1];
+        if (next && !next.startsWith("--")) {
+          flags[key] = next;
+          i++;
+        } else {
+          flags[key] = true;
+        }
+      } else {
+        positional.push(args[i]!);
+      }
+    }
+    return { positional, flags };
   }
 
   /** Format a duration in milliseconds to a human-readable string. */

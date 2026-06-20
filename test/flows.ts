@@ -9,9 +9,11 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync, existsSync, mkdtempSync } from "node:fs";
+import { rmSync, existsSync, mkdtempSync, mkdirSync as mkDir, writeFileSync, readFileSync as readF } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+import { sessionFile } from "../core/storage.ts";
 
 import {
   readRegistry,
@@ -1139,4 +1141,69 @@ describe("Task dependencies", () => {
     const tasks = await readBacklog(session);
     assert.deepStrictEqual(unmetDependencies(t!, tasks), []);
   });
+});
+
+describe("Project context (CONTEXT.md)", () => {
+  const session = testSession("context");
+  after(() => cleanupSession(session));
+
+  it("reads null when no context file exists", () => {
+    const ctxPath = sessionFile(session, "artifacts", "project", "CONTEXT.md");
+    assert.equal(existsSync(ctxPath), false);
+  });
+
+  it("writes and reads context file", () => {
+    const dir = sessionFile(session, "artifacts", "project");
+    mkDir(dir, { recursive: true });
+    const ctxPath = join(dir, "CONTEXT.md");
+    const content = "This project builds a multi-agent coordination system.";
+    writeFileSync(ctxPath, content, "utf8");
+
+    const read = readF(ctxPath, "utf8");
+    assert.equal(read, content);
+  });
+
+  it("append preserves existing content", () => {
+    const ctxPath = sessionFile(session, "artifacts", "project", "CONTEXT.md");
+    const existing = readF(ctxPath, "utf8");
+    const addition = "\n\nFocus on test coverage this sprint.";
+    writeFileSync(ctxPath, existing + addition, "utf8");
+
+    const read = readF(ctxPath, "utf8");
+    assert.ok(read.includes("multi-agent"));
+    assert.ok(read.includes("test coverage"));
+  });
+
+  it("clear writes empty content", () => {
+    const ctxPath = sessionFile(session, "artifacts", "project", "CONTEXT.md");
+    writeFileSync(ctxPath, "", "utf8");
+    const read = readF(ctxPath, "utf8").trim();
+    assert.equal(read, "");
+  });
+
+  it("context path is under session artifacts/project", () => {
+    const ctxPath = sessionFile(session, "artifacts", "project", "CONTEXT.md");
+    assert.ok(ctxPath.includes(session));
+    assert.ok(ctxPath.endsWith("artifacts/project/CONTEXT.md"));
+  });
+
+  // Manual test steps for Pi command shortcuts:
+  //
+  // /amux context:
+  //   1. /amux join → join a project
+  //   2. /amux context → shows "No project context set"
+  //   3. /amux context set "Build a REST API with auth" → "Project context set"
+  //   4. /amux context → shows the set context
+  //   5. /amux context append "Use PostgreSQL for storage" → "Appended"
+  //   6. /amux context → shows both lines
+  //   7. /amux context edit → opens editor with current content
+  //   8. /amux context path → prints file path
+  //   9. /amux context clear → confirms and clears
+  //
+  // /amux new:
+  //   1. /amux new project testproj → creates project, asks about repo
+  //   2. /amux new agent Dev --role developer → creates agent with role
+  //   3. /amux new role custom → prompts for description and instructions
+  //   4. /amux new → shows usage help
+  //   5. /amux new agent → prompts for name, then role selection
 });
