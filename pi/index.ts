@@ -1700,7 +1700,7 @@ export default function (pi: ExtensionAPI) {
           const { basename: bn, dirname: dn } = await import("node:path");
           const repoName = bn(config.mainRepo);
           const parentDir = dn(config.mainRepo);
-          const defaultPath = `${parentDir}/${repoName}-${name}`;
+          const defaultPath = `${parentDir}/${repoName}-${sanitizeBranchName(name)}`;
 
           const wsInput = await ctx.ui.editor("Worktree path:", defaultPath);
           if (!wsInput?.trim()) { ctx.ui.notify("Cancelled.", "info"); return; }
@@ -1720,7 +1720,7 @@ export default function (pi: ExtensionAPI) {
       // 2. Create worktree if requested
       let workspace: string | undefined;
       if (wsChoice === "New worktree" && wsPath && config.mainRepo) {
-        const branchName = `agent/${name}`;
+        const branchName = `agent/${sanitizeBranchName(name)}`;
         const result = await pi.exec(
           "git", ["-C", config.mainRepo, "worktree", "add", wsPath, "-b", branchName],
           { timeout: 30000 }
@@ -1919,12 +1919,13 @@ export default function (pi: ExtensionAPI) {
         const mainBranchName = mainBranch.stdout.trim() || "main";
 
         const fetch = await pi.exec("git", ["-C", workDir, "fetch", "origin"], { timeout: 30000 });
-        const rebase = await pi.exec("git", ["-C", workDir, "rebase", mainBranchName], { timeout: 30000 });
+        const upstream = `origin/${mainBranchName}`;
+        const rebase = await pi.exec("git", ["-C", workDir, "rebase", upstream], { timeout: 30000 });
 
         if (rebase.code !== 0) {
           ctx.ui.notify(`Rebase conflicts:\n${rebase.stderr}\n\nResolve, then: git rebase --continue`, "warning");
         } else {
-          ctx.ui.notify(`Synced with ${mainBranchName}. Up to date.`, "info");
+          ctx.ui.notify(`Synced with ${upstream}. Up to date.`, "info");
         }
         break;
       }
@@ -1937,16 +1938,21 @@ export default function (pi: ExtensionAPI) {
           ? (await pi.exec("git", ["-C", config.mainRepo, "branch", "--show-current"], { timeout: 5000 })).stdout.trim() || "main"
           : "main";
 
-        const ahead = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `${mainBranchName}..HEAD`], { timeout: 5000 });
-        const behind = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `HEAD..${mainBranchName}`], { timeout: 5000 });
+        // Compare against remote ref for accuracy; fall back gracefully
+        const upstream = `origin/${mainBranchName}`;
+        const ahead = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `${upstream}..HEAD`], { timeout: 5000 });
+        const behind = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `HEAD..${upstream}`], { timeout: 5000 });
+
+        const aheadCount = ahead.code === 0 ? ahead.stdout.trim() : "? (remote ref not found)";
+        const behindCount = behind.code === 0 ? behind.stdout.trim() : "? (remote ref not found)";
 
         const dirtyFiles = status.stdout.trim();
         const dirtyCount = dirtyFiles ? dirtyFiles.split("\n").length : 0;
 
-        let info = `Branch: ${branch.stdout.trim()}`;
+        let info = `Branch: ${branch.stdout.trim() || "(detached)"}`;
         info += `\nWorktree: ${workDir}`;
-        info += `\nAhead of ${mainBranchName}: ${ahead.stdout.trim()} commits`;
-        info += `\nBehind ${mainBranchName}: ${behind.stdout.trim()} commits`;
+        info += `\nAhead of ${upstream}: ${aheadCount} commits`;
+        info += `\nBehind ${upstream}: ${behindCount} commits`;
         info += `\nDirty files: ${dirtyCount}`;
         if (dirtyFiles) info += `\n\n${dirtyFiles}`;
 
@@ -1958,6 +1964,21 @@ export default function (pi: ExtensionAPI) {
 
 
   // -- Helpers --------------------------------------------------
+
+  /**
+   * Sanitize an agent name for use as a git branch component.
+   * Lowercases, replaces special characters with hyphens, collapses
+   * consecutive hyphens, and trims leading/trailing hyphens.
+   */
+  function sanitizeBranchName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, "-")
+      .replace(/\.\./g, "-")       // no consecutive dots (git ref rule)
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      || "unnamed";
+  }
 
   /** Format a duration in milliseconds to a human-readable string. */
   function formatDuration(ms: number): string {

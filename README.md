@@ -116,18 +116,21 @@ Agents can work in isolated git worktrees:
 ```bash
 # Architect sets up (from /amux manage)
 Agents > New → name, role, workspace: "New worktree"
-  → creates ~/myapp-AgentName on branch agent/AgentName
+  → creates ~/myapp-alice on branch agent/alice
+  (names are sanitized: "My Agent!" → agent/my-agent)
 
 # Agent starts in their worktree
-cd ~/myapp-agent1 && pi
+cd ~/myapp-alice && pi
 /amux join
 
-# Sync from main
+# Sync from main (fetches origin, rebases on origin/<mainBranch>)
 /amux workspace > sync
 
-# Check status
+# Check status (compares against origin/<mainBranch>)
 /amux workspace > status
 ```
+
+Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where `<mainBranch>` is the current branch of the main repo (defaults to `main`). This avoids rebasing against a stale local branch. Status compares commit counts against the same remote ref and handles missing refs gracefully.
 
 ## Key Features
 
