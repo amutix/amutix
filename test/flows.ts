@@ -25,6 +25,8 @@ import {
   findById,
   getOnlineAgents,
   getOfflineAgents,
+  isEffectivelyOnline,
+  HEARTBEAT_TTL_MS,
   readRoles,
   addRole,
   removeRole,
@@ -805,5 +807,96 @@ describe("Agent name uniqueness", () => {
     await updateAgent(session, bob!.id, { name: "Charlie" });
     const renamed = await findById(session, bob!.id);
     assert.equal(renamed!.name, "Charlie");
+  });
+});
+
+describe("Heartbeat TTL and stale agents", () => {
+  const session = testSession("heartbeat");
+  const freshTime = new Date().toISOString();
+  const staleTime = new Date(Date.now() - HEARTBEAT_TTL_MS - 10_000).toISOString();
+  let freshId: string;
+  let staleId: string;
+  let offlineId: string;
+
+  after(() => cleanupSession(session));
+
+  it("sets up agents with various heartbeat states", async () => {
+    freshId = newAgentId();
+    staleId = newAgentId();
+    offlineId = newAgentId();
+
+    // Online with fresh heartbeat
+    await registerAgent(session, {
+      id: freshId, name: "Fresh", session,
+      role: "dev", cwd: "/tmp", pid: 1, status: "online",
+      registeredAt: freshTime, lastHeartbeat: freshTime,
+    });
+    // Online but heartbeat has expired (simulates crash)
+    await registerAgent(session, {
+      id: staleId, name: "Stale", session,
+      role: "dev", cwd: "/tmp", pid: 2, status: "online",
+      registeredAt: staleTime, lastHeartbeat: staleTime,
+    });
+    // Explicitly offline with fresh heartbeat
+    await registerAgent(session, {
+      id: offlineId, name: "Offline", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      registeredAt: freshTime, lastHeartbeat: freshTime,
+    });
+  });
+
+  it("isEffectivelyOnline is true for fresh heartbeat", async () => {
+    const agent = await findById(session, freshId);
+    assert.ok(isEffectivelyOnline(agent!));
+  });
+
+  it("isEffectivelyOnline is false for stale heartbeat", async () => {
+    const agent = await findById(session, staleId);
+    assert.equal(isEffectivelyOnline(agent!), false);
+  });
+
+  it("isEffectivelyOnline is false for offline status", async () => {
+    const agent = await findById(session, offlineId);
+    assert.equal(isEffectivelyOnline(agent!), false);
+  });
+
+  it("getOnlineAgents excludes stale agents", async () => {
+    const online = await getOnlineAgents(session);
+    assert.equal(online.length, 1);
+    assert.equal(online[0]!.id, freshId);
+  });
+
+  it("getOfflineAgents includes stale agents", async () => {
+    const offline = await getOfflineAgents(session);
+    assert.equal(offline.length, 2);
+    const ids = offline.map((a) => a.id);
+    assert.ok(ids.includes(staleId), "Stale agent should appear as offline");
+    assert.ok(ids.includes(offlineId), "Offline agent should appear as offline");
+  });
+
+  it("stale reservations from expired agents are cleared", async () => {
+    // Stale agent holds a reservation
+    await reserve(session, ["stale-file.ts"], staleId, "Stale");
+    // Fresh agent holds a reservation
+    await reserve(session, ["fresh-file.ts"], freshId, "Fresh");
+
+    // Clear stale reservations using effective online list
+    const online = await getOnlineAgents(session);
+    const onlineIds = online.map((a) => a.id);
+    const removed = await clearStaleReservations(session, onlineIds);
+
+    assert.ok(removed >= 1, "At least 1 stale reservation should be removed");
+    const remaining = await getReservations(session);
+    assert.ok(remaining["fresh-file.ts"], "Fresh agent's reservation should survive");
+    assert.equal(remaining["stale-file.ts"], undefined, "Stale agent's reservation should be cleared");
+  });
+
+  it("join availability treats stale agents as joinable", async () => {
+    // Stale agent should appear in getOfflineAgents (joinable)
+    const offline = await getOfflineAgents(session);
+    const staleAgent = offline.find((a) => a.id === staleId);
+    assert.ok(staleAgent, "Stale agent should be joinable (appear as offline)");
+    assert.equal(staleAgent!.status, "online", "Stored status is still online");
+    assert.equal(isEffectivelyOnline(staleAgent!), false, "But effectively offline");
   });
 });

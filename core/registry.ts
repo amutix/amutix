@@ -56,6 +56,31 @@ export interface SessionConfig {
 
 export type AgentAddress = string;
 
+// ─── Heartbeat / Presence ───────────────────────────────────
+
+/** Expected interval between heartbeats (milliseconds). */
+export const HEARTBEAT_INTERVAL_MS = 30_000;
+
+/**
+ * Heartbeat TTL: an agent is considered stale after this duration
+ * without a heartbeat (3× the heartbeat interval = 90 seconds).
+ */
+export const HEARTBEAT_TTL_MS = HEARTBEAT_INTERVAL_MS * 3;
+
+/**
+ * Check whether an agent is effectively online.
+ *
+ * An agent is online only if its stored status is `"online"` AND its
+ * last heartbeat falls within the TTL window.  Crashed agents whose
+ * heartbeat has expired are treated as offline even though their
+ * persisted status still says `"online"`.
+ */
+export function isEffectivelyOnline(agent: AgentInfo): boolean {
+  if (agent.status !== "online") return false;
+  const elapsed = Date.now() - new Date(agent.lastHeartbeat).getTime();
+  return elapsed < HEARTBEAT_TTL_MS;
+}
+
 // ─── Paths ───────────────────────────────────────────────────
 
 function registryPath(session: string): string {
@@ -194,16 +219,16 @@ export async function findById(
   return registry[id] ?? null;
 }
 
-/** Get all online agents in a session. */
+/** Get all effectively-online agents in a session (heartbeat within TTL). */
 export async function getOnlineAgents(session: string): Promise<AgentInfo[]> {
   const registry = await readRegistry(session);
-  return Object.values(registry).filter((a) => a.status === "online");
+  return Object.values(registry).filter(isEffectivelyOnline);
 }
 
-/** Get all offline agents in a session. */
+/** Get all effectively-offline agents in a session (offline or stale heartbeat). */
 export async function getOfflineAgents(session: string): Promise<AgentInfo[]> {
   const registry = await readRegistry(session);
-  return Object.values(registry).filter((a) => a.status === "offline");
+  return Object.values(registry).filter((a) => !isEffectivelyOnline(a));
 }
 
 /** Get all agents across all sessions. */

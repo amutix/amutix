@@ -36,6 +36,8 @@ import {
   findById,
   getOnlineAgents,
   getOfflineAgents,
+  isEffectivelyOnline,
+  HEARTBEAT_INTERVAL_MS,
   resolveAgent,
   formatAddress,
   readRoles,
@@ -77,9 +79,6 @@ import {
   getRecentEntries,
   formatEntry as formatJournalEntry,
 } from "../core/journal";
-
-const HEARTBEAT_INTERVAL_MS = 30_000;
-
 
 
 
@@ -365,7 +364,7 @@ export default function (pi: ExtensionAPI) {
     // Cross-session agents (online only)
     const allAgents = await readAllRegistries();
     const crossSessionAgents = allAgents.filter(
-      (a) => a.session !== mySession && a.status === "online"
+      (a) => a.session !== mySession && isEffectivelyOnline(a)
     );
 
     const hasOthers = projectAgents.length > 0 || crossSessionAgents.length > 0;
@@ -533,7 +532,7 @@ export default function (pi: ExtensionAPI) {
 
       let agents: AgentInfo[];
       if (params.allSessions) {
-        agents = (await readAllRegistries()).filter((a) => a.status === "online");
+        agents = (await readAllRegistries()).filter(isEffectivelyOnline);
       } else {
         agents = await getOnlineAgents(mySession);
       }
@@ -596,7 +595,7 @@ export default function (pi: ExtensionAPI) {
       const target = await resolveAgent(params.to, mySession);
       if (!target) {
         const all = await readAllRegistries();
-        const online = all.filter((a) => a.status === "online" && a.id !== myId);
+        const online = all.filter((a) => isEffectivelyOnline(a) && a.id !== myId);
         const available = online.map((a) => formatAddress(a.session, a.name)).join(", ");
         throw new Error(`Agent "${params.to}" not found. Available: ${available || "none"}`);
       }
@@ -646,7 +645,7 @@ export default function (pi: ExtensionAPI) {
 
       let agents: AgentInfo[];
       if (params.allSessions) {
-        agents = (await readAllRegistries()).filter((a) => a.status === "online");
+        agents = (await readAllRegistries()).filter(isEffectivelyOnline);
       } else {
         agents = await getOnlineAgents(mySession);
       }
@@ -1368,8 +1367,8 @@ export default function (pi: ExtensionAPI) {
     // 2. Select agent (no creation -- use /amux manage)
     const registry = await readRegistry(mySession);
     const allAgents = Object.values(registry);
-    const offlineAgents = allAgents.filter((a) => a.status === "offline" && a.id !== previousAgentId);
-    const onlineAgents = allAgents.filter((a) => a.status === "online");
+    const offlineAgents = allAgents.filter((a) => !isEffectivelyOnline(a) && a.id !== previousAgentId);
+    const onlineAgents = allAgents.filter(isEffectivelyOnline);
 
     if (offlineAgents.length === 0 && onlineAgents.length === 0) {
       ctx.ui.notify(`No agents in "${project}". Use /amux manage to create one.`, "info");
@@ -1614,7 +1613,7 @@ export default function (pi: ExtensionAPI) {
     const options = [
       ...allAgents.map((a) => {
         const roleLabel = a.roleName ? ` (${a.roleName})` : "";
-        const status = a.status === "online" ? " [online]" : "";
+        const status = isEffectivelyOnline(a) ? " [online]" : "";
         return `${a.name}${roleLabel}${status}`;
       }),
       NEW_AGENT,
