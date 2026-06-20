@@ -1,6 +1,6 @@
 {
   "name": "@amutix/amux",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Agent Multiplexer -- multi-agent coordination for AI coding agents",
   "type": "module",
   "keywords": [
