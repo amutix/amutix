@@ -33,9 +33,9 @@ Commands:
   help      Show this help
 
 For interactive use within Pi:
-  pi install git:github.com/rezabaram/amux
+  pi install git:github.com/amutix/amux
 
-Documentation: https://github.com/rezabaram/amux`);
+Documentation: https://github.com/amutix/amux`);
 } else {
   console.log(`amux: command "${cmd}" not yet implemented.`);
   console.log("CLI is under development. Use the Pi extension for full functionality.");

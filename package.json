@@ -34,7 +34,7 @@
     "amux": "./cli/index.ts"
   },
   "scripts": {
-    "test": "node test/parse.mjs && node --test test/flows.ts"
+    "test": "node --experimental-strip-types test/parse.mjs && node --experimental-strip-types --test test/flows.ts"
   },
   "pi": {
     "extensions": [

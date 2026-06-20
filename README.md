@@ -162,8 +162,10 @@ cd ~/myapp-agent1 && pi
 
 ## Development
 
+Requires Node >= 22 (uses `--experimental-strip-types`).
+
 ```bash
-npm test    # Verify all files parse correctly
+npm test    # Parse-check all .ts files + run E2E flow tests
 ```
 
 ## Contributing

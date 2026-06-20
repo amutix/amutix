@@ -27,7 +27,7 @@ amux/
 
 - **Core module** (`core/`) must remain Pi-independent. No imports from Pi packages.
 - **Pi extension** (`pi/`) is the only place for Pi-specific code.
-- Run `npm test` before submitting — it verifies all files parse correctly.
+- Run `npm test` before submitting — it verifies all files parse correctly and runs E2E flow tests.
 - Follow existing code patterns (atomic file writes, consistent error handling).
 - Keep the tool count minimal. Consolidate with action enums when possible.
 

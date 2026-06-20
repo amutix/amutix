@@ -1,14 +1,14 @@
 /**
- * Test that all TypeScript files parse correctly with Pi's jiti loader.
- * Usage: npm test
+ * Test that all TypeScript files parse correctly using Node's built-in
+ * --experimental-strip-types (requires Node >= 22.6).
+ *
+ * Usage: node --experimental-strip-types test/parse.mjs
  */
-import { createJiti } from "/home/reza/.nvm/versions/node/v24.3.0/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti.mjs";
 import { readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const jiti = createJiti(import.meta.url);
 let failed = false;
 
 // Test core/ and pi/ directories
@@ -17,15 +17,17 @@ for (const dir of ["core", "pi"]) {
   const files = readdirSync(fullDir).filter((f) => f.endsWith(".ts"));
 
   for (const file of files) {
+    const fileUrl = pathToFileURL(join(fullDir, file)).href;
     try {
-      jiti(join(fullDir, file));
+      await import(fileUrl);
       console.log(`  ✓ ${dir}/${file}`);
     } catch (e) {
-      const msg = e.message ?? "";
-      if (msg.includes("ParseError") || msg.includes("Unexpected token")) {
+      if (e instanceof SyntaxError) {
+        const msg = e.message ?? "";
         console.log(`  ✗ ${dir}/${file}: ${msg.slice(0, 200)}`);
         failed = true;
       } else {
+        // Runtime errors (missing deps, etc.) are fine — file parsed OK
         console.log(`  ✓ ${dir}/${file} (parsed, runtime dep expected)`);
       }
     }
