@@ -28,7 +28,7 @@ cli/                           Command-line interface (uses core)
 
 ```bash
 # Stable (npm)
-pi install npm:@rezabaram/amux
+pi install npm:@amutix/amux
 
 # Latest (git)
 pi install git:github.com/rezabaram/amux
