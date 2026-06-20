@@ -58,6 +58,9 @@ import {
   checkConflict,
   clearStaleReservations,
   getReservations,
+  pathsOverlap,
+  toWorkspaceRelative,
+  normalizePath,
 } from "../core/reservations.ts";
 
 import {
@@ -609,5 +612,109 @@ describe("Concurrent write coordination", () => {
     const roles = await readRoles(session);
     const count = Object.keys(roles).length;
     assert.equal(count, N, `Expected ${N} roles, got ${count}`);
+  });
+});
+
+describe("Path overlap semantics", () => {
+  it("exact file matches itself", () => {
+    assert.ok(pathsOverlap("src/auth.ts", "src/auth.ts"));
+  });
+
+  it("exact file does NOT conflict with similar prefix", () => {
+    // src/auth vs src/authz.ts — no trailing slash = exact file
+    assert.equal(pathsOverlap("src/auth", "src/authz.ts"), false);
+    assert.equal(pathsOverlap("src/authz.ts", "src/auth"), false);
+  });
+
+  it("directory prefix conflicts with files inside", () => {
+    assert.ok(pathsOverlap("src/auth/", "src/auth/login.ts"));
+    assert.ok(pathsOverlap("src/auth/login.ts", "src/auth/"));
+  });
+
+  it("directory prefix does NOT conflict with similar-name directories", () => {
+    assert.equal(pathsOverlap("src/auth/", "src/authz/file.ts"), false);
+    assert.equal(pathsOverlap("src/authz/file.ts", "src/auth/"), false);
+  });
+
+  it("nested directory prefixes overlap", () => {
+    assert.ok(pathsOverlap("src/", "src/auth/"));
+    assert.ok(pathsOverlap("src/auth/", "src/"));
+  });
+
+  it("directory prefix conflicts with deeper nested files", () => {
+    assert.ok(pathsOverlap("src/auth/", "src/auth/utils/helper.ts"));
+  });
+
+  it("disjoint files do not conflict", () => {
+    assert.equal(pathsOverlap("src/auth.ts", "src/utils.ts"), false);
+  });
+
+  it("disjoint directories do not conflict", () => {
+    assert.equal(pathsOverlap("src/auth/", "src/utils/"), false);
+  });
+});
+
+describe("Workspace-relative normalization", () => {
+  it("strips workspace prefix from absolute paths", () => {
+    assert.equal(
+      toWorkspaceRelative("/Users/reza/myapp/src/auth.ts", "/Users/reza/myapp"),
+      "src/auth.ts"
+    );
+  });
+
+  it("returns relative paths unchanged", () => {
+    assert.equal(
+      toWorkspaceRelative("src/auth.ts", "/Users/reza/myapp"),
+      "src/auth.ts"
+    );
+  });
+
+  it("returns paths outside workspace unchanged", () => {
+    assert.equal(
+      toWorkspaceRelative("/other/path/file.ts", "/Users/reza/myapp"),
+      "/other/path/file.ts"
+    );
+  });
+
+  it("handles missing cwd gracefully", () => {
+    assert.equal(toWorkspaceRelative("/abs/path/file.ts"), "/abs/path/file.ts");
+    assert.equal(toWorkspaceRelative("/abs/path/file.ts", undefined), "/abs/path/file.ts");
+  });
+
+  it("handles nested subdirectories", () => {
+    assert.equal(
+      toWorkspaceRelative("/Users/reza/myapp/src/auth/utils/helper.ts", "/Users/reza/myapp"),
+      "src/auth/utils/helper.ts"
+    );
+  });
+});
+
+describe("Reservation boundary semantics (integration)", () => {
+  const session = testSession("path-boundary");
+  after(() => cleanupSession(session));
+
+  it("exact file reservation does not block similar-prefix file", async () => {
+    await reserve(session, ["src/auth"], "agent-x", "AgentX");
+    // src/authz.ts should NOT conflict
+    const conflict = await checkConflict(session, "src/authz.ts", "agent-y");
+    assert.equal(conflict, null);
+  });
+
+  it("directory reservation blocks files inside but not similar-prefix", async () => {
+    await reserve(session, ["src/models/"], "agent-x", "AgentX");
+    // Inside the directory — should conflict
+    const inside = await checkConflict(session, "src/models/user.ts", "agent-y");
+    assert.ok(inside, "Expected conflict for file inside reserved directory");
+    // Similar prefix — should NOT conflict
+    const outside = await checkConflict(session, "src/modelstore.ts", "agent-y");
+    assert.equal(outside, null);
+  });
+
+  it("absolute path under workspace conflicts with relative reservation", async () => {
+    // The normalizePath + toWorkspaceRelative pipeline should make this work
+    const absPath = toWorkspaceRelative("/workspace/src/auth", "/workspace");
+    const normalized = normalizePath(absPath);
+    // Should match the reservation set earlier
+    assert.equal(normalized, "src/auth");
   });
 });

@@ -11,7 +11,7 @@
  *   reservations.json — active reservations (keyed by path prefix)
  */
 
-import { normalize } from "node:path";
+import { normalize, isAbsolute, relative } from "node:path";
 
 import {
   sessionFile,
@@ -66,10 +66,29 @@ export function normalizePath(p: string): string {
 
 /**
  * Check if two paths overlap (conflict).
- * Either one is a prefix of the other.
+ * Trailing slash = directory prefix; no trailing slash = exact file.
+ * A directory "foo/" contains "foo/bar" but NOT "foobar".
  */
 export function pathsOverlap(pathA: string, pathB: string): boolean {
-  return pathA.startsWith(pathB) || pathB.startsWith(pathA);
+  // Exact match
+  if (pathA === pathB) return true;
+  // Directory prefix matches paths inside it (boundary-aware)
+  if (pathA.endsWith("/") && pathB.startsWith(pathA)) return true;
+  if (pathB.endsWith("/") && pathA.startsWith(pathB)) return true;
+  return false;
+}
+
+/**
+ * Convert an absolute file path to a workspace-relative path.
+ * Returns the path unchanged if it is already relative or outside the workspace.
+ * Used by the Pi adapter to normalize write/edit paths for conflict checks.
+ */
+export function toWorkspaceRelative(filePath: string, cwd?: string): string {
+  if (!cwd || !isAbsolute(filePath)) return filePath;
+  const rel = relative(cwd, filePath);
+  // If the relative path escapes the workspace, return the original
+  if (rel.startsWith("..")) return filePath;
+  return rel;
 }
 
 // ─── Reservations ────────────────────────────────────────────

@@ -62,6 +62,7 @@ import {
   getReservations,
   checkConflict,
   clearStaleReservations,
+  toWorkspaceRelative,
 } from "../core/reservations";
 import {
   type Task,
@@ -281,11 +282,15 @@ export default function (pi: ExtensionAPI) {
     const filePath = (event.input as Record<string, unknown>).path as string | undefined;
     if (!filePath) return;
 
+    // Normalize absolute paths relative to the working directory
+    // so they match relative reservations consistently
+    const normalizedPath = toWorkspaceRelative(filePath, process.cwd());
+
     // Get online agent IDs for stale detection
     const online = await getOnlineAgents(mySession).catch(() => [] as AgentInfo[]);
     const onlineIds = online.map((a) => a.id);
 
-    const conflict = await checkConflict(mySession, filePath, myId, onlineIds);
+    const conflict = await checkConflict(mySession, normalizedPath, myId, onlineIds);
     if (!conflict) return;
 
     const { reservedPath, reservation, stale } = conflict;
