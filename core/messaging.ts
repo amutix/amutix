@@ -1,5 +1,5 @@
 /**
- * pmux — File-Based Messaging (Crash-Safe)
+ * amux — File-Based Messaging (Crash-Safe)
  *
  * Message lifecycle:
  *   1. Sender writes .json to target's inbox (durable)
@@ -42,14 +42,14 @@ export interface InboxMessage {
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const PMUX_DIR = join(homedir(), ".amux", "sessions");
+const AMUX_DIR = join(homedir(), ".amux", "sessions");
 
 function inboxDir(session: string, agentId: string): string {
-  return join(PMUX_DIR, session, "inbox", agentId);
+  return join(AMUX_DIR, session, "inbox", agentId);
 }
 
 function historyPath(session: string): string {
-  return join(PMUX_DIR, session, "messages.log");
+  return join(AMUX_DIR, session, "messages.log");
 }
 
 // ─── Inbox Operations ────────────────────────────────────────
@@ -147,7 +147,7 @@ export function confirmDelivered(session: string, agentId: string): void {
  */
 export function appendToHistory(session: string, message: InboxMessage): void {
   const path = historyPath(session);
-  mkdirSync(join(PMUX_DIR, session), { recursive: true });
+  mkdirSync(join(AMUX_DIR, session), { recursive: true });
   appendFileSync(path, JSON.stringify(message) + "\n", "utf8");
 }
 

@@ -416,3 +416,127 @@ describe("Integration: full agent workflow", () => {
     assert.equal(await checkConflict(session, "src/auth.ts", architectId), null);
   });
 });
+
+describe("Agent-to-agent messaging", () => {
+  const session = testSession("a2a-msg");
+  const agentA = newAgentId();
+  const agentB = newAgentId();
+
+  after(() => cleanupSession(session));
+
+  it("sets up inboxes for two agents", () => {
+    ensureInbox(session, agentA);
+    ensureInbox(session, agentB);
+  });
+
+  it("agent A sends message to agent B", () => {
+    sendToInbox(session, agentB, {
+      id: newMessageId(),
+      from: agentA,
+      fromName: "Alice",
+      fromRole: "architect",
+      fromSession: session,
+      timestamp: new Date().toISOString(),
+      message: "Can you review the auth module?",
+    });
+
+    const pending = getRecoverableMessages(session, agentB);
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]!.msg.fromName, "Alice");
+    assert.equal(pending[0]!.msg.message, "Can you review the auth module?");
+  });
+
+  it("agent B receives, marks delivered, confirms", () => {
+    const pending = getRecoverableMessages(session, agentB);
+    const { msg, filename } = pending[0]!;
+
+    // Crash-safe: append to history first
+    appendToHistory(session, msg);
+
+    // Mark delivered (rename .json → .delivered)
+    markAsDelivered(session, agentB, filename);
+
+    // Still recoverable as .delivered
+    const recoverable = getRecoverableMessages(session, agentB);
+    assert.equal(recoverable.length, 1);
+    assert.ok(recoverable[0]!.filename.endsWith(".delivered"));
+
+    // Confirm (delete .delivered)
+    confirmDelivered(session, agentB);
+    assert.equal(getRecoverableMessages(session, agentB).length, 0);
+  });
+
+  it("agent B replies to agent A", () => {
+    sendToInbox(session, agentA, {
+      id: newMessageId(),
+      from: agentB,
+      fromName: "Bob",
+      fromRole: "developer",
+      fromSession: session,
+      timestamp: new Date().toISOString(),
+      message: "Reviewed — looks good, one suggestion on error handling.",
+    });
+
+    const pending = getRecoverableMessages(session, agentA);
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]!.msg.fromName, "Bob");
+    assert.ok(pending[0]!.msg.message.includes("one suggestion"));
+  });
+
+  it("handles multiple messages in sequence", () => {
+    // Send 3 more messages A → B
+    for (let i = 0; i < 3; i++) {
+      sendToInbox(session, agentB, {
+        id: newMessageId(),
+        from: agentA,
+        fromName: "Alice",
+        fromSession: session,
+        timestamp: new Date().toISOString(),
+        message: `Follow-up message ${i}`,
+      });
+    }
+
+    const pending = getRecoverableMessages(session, agentB);
+    assert.equal(pending.length, 3);
+
+    // Process all — mark delivered then confirm
+    for (const { msg, filename } of pending) {
+      appendToHistory(session, msg);
+      markAsDelivered(session, agentB, filename);
+    }
+    confirmDelivered(session, agentB);
+    assert.equal(getRecoverableMessages(session, agentB).length, 0);
+  });
+
+  it("crash recovery: undelivered .json survives", () => {
+    // Send a message but DON'T mark delivered (simulate crash)
+    sendToInbox(session, agentB, {
+      id: newMessageId(),
+      from: agentA,
+      fromName: "Alice",
+      fromSession: session,
+      timestamp: new Date().toISOString(),
+      message: "This message survives a crash",
+    });
+
+    // On "restart", recoverable picks it up as .json
+    const recoverable = getRecoverableMessages(session, agentB);
+    assert.equal(recoverable.length, 1);
+    assert.ok(recoverable[0]!.filename.endsWith(".json"));
+    assert.equal(recoverable[0]!.msg.message, "This message survives a crash");
+  });
+
+  it("crash recovery: .delivered file survives and is redelivered", () => {
+    // Mark the previous message as delivered but DON'T confirm
+    const pending = getRecoverableMessages(session, agentB);
+    markAsDelivered(session, agentB, pending[0]!.filename);
+
+    // On "restart", .delivered file is still recoverable
+    const recoverable = getRecoverableMessages(session, agentB);
+    assert.equal(recoverable.length, 1);
+    assert.ok(recoverable[0]!.filename.endsWith(".delivered"));
+
+    // Clean up
+    confirmDelivered(session, agentB);
+  });
+});

@@ -1,5 +1,5 @@
 /**
- * pmux — Task Backlog
+ * amux — Task Backlog
  *
  * Lightweight ordered work queue for multi-agent projects.
  * Array order = priority (first item = highest priority).
@@ -36,10 +36,10 @@ export type Backlog = Task[];
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const PMUX_DIR = join(homedir(), ".amux", "sessions");
+const AMUX_DIR = join(homedir(), ".amux", "sessions");
 
 function backlogPath(session: string): string {
-  return join(PMUX_DIR, session, "backlog.json");
+  return join(AMUX_DIR, session, "backlog.json");
 }
 
 // ─── Atomic I/O ──────────────────────────────────────────────

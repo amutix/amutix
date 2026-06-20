@@ -1,5 +1,5 @@
 /**
- * pmux — Journal System
+ * amux — Journal System
  *
  * Append-only JSONL log for decisions, learnings, and progress.
  * Shared across all agents in a session.
@@ -31,10 +31,10 @@ export const JOURNAL_WINDOW_SIZE = 10;
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const PMUX_DIR = join(homedir(), ".amux", "sessions");
+const AMUX_DIR = join(homedir(), ".amux", "sessions");
 
 function journalPath(session: string): string {
-  return join(PMUX_DIR, session, "journal.jsonl");
+  return join(AMUX_DIR, session, "journal.jsonl");
 }
 
 // ─── Journal Operations ─────────────────────────────────────

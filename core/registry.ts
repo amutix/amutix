@@ -1,5 +1,5 @@
 /**
- * pmux — Agent Registry, Roles, and Session Config
+ * amux — Agent Registry, Roles, and Session Config
  *
  * Agents are keyed by UUID. Names are for human-friendly addressing.
  * Agents persist across restarts with online/offline status.
@@ -20,7 +20,7 @@ import { randomBytes } from "node:crypto";
 export interface AgentInfo {
   id: string; // UUID — primary key, stable across restarts
   name: string; // human-friendly display name
-  session: string; // pmux session name
+  session: string; // amux session name
   role: string; // human-readable role description
   roleName?: string; // references a RoleDefinition name
   workspace?: string; // git worktree path
@@ -52,18 +52,18 @@ export type AgentAddress = string;
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const PMUX_DIR = join(homedir(), ".amux", "sessions");
+const AMUX_DIR = join(homedir(), ".amux", "sessions");
 
 function registryPath(session: string): string {
-  return join(PMUX_DIR, session, "agents.json");
+  return join(AMUX_DIR, session, "agents.json");
 }
 
 function rolesPath(session: string): string {
-  return join(PMUX_DIR, session, "roles.json");
+  return join(AMUX_DIR, session, "roles.json");
 }
 
 function configPath(session: string): string {
-  return join(PMUX_DIR, session, "config.json");
+  return join(AMUX_DIR, session, "config.json");
 }
 
 // ─── Atomic I/O ──────────────────────────────────────────────
@@ -193,7 +193,7 @@ export async function getOfflineAgents(session: string): Promise<AgentInfo[]> {
 export async function readAllRegistries(): Promise<AgentInfo[]> {
   const allAgents: AgentInfo[] = [];
   try {
-    const sessionDirs = await readdir(PMUX_DIR, { withFileTypes: true });
+    const sessionDirs = await readdir(AMUX_DIR, { withFileTypes: true });
     for (const entry of sessionDirs) {
       if (!entry.isDirectory()) continue;
       const registry = await readRegistry(entry.name);

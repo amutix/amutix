@@ -1,5 +1,5 @@
 /**
- * pmux — File Reservations (Phase 1: Advisory)
+ * amux — File Reservations (Phase 1: Advisory)
  *
  * Agents reserve file paths or directory prefixes to prevent conflicts.
  * Convention: trailing slash = directory prefix, no slash = exact file.
@@ -39,10 +39,10 @@ export interface ConflictInfo {
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const PMUX_DIR = join(homedir(), ".amux", "sessions");
+const AMUX_DIR = join(homedir(), ".amux", "sessions");
 
 function reservationsPath(session: string): string {
-  return join(PMUX_DIR, session, "reservations.json");
+  return join(AMUX_DIR, session, "reservations.json");
 }
 
 // ─── Atomic I/O ──────────────────────────────────────────────
@@ -136,7 +136,7 @@ export async function reserve(
         const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
         throw new Error(
           `Conflict: "${existingPath}" is reserved by ${reservation.agent}${reasonStr}. ` +
-            `Use pmux_send('${reservation.agent}', ...) to coordinate.`
+            `Use amux_send('${reservation.agent}', ...) to coordinate.`
         );
       }
     }

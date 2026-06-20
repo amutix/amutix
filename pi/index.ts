@@ -1907,15 +1907,15 @@ export default function (pi: ExtensionAPI) {
 
   // -- Artifacts ------------------------------------------------
 
-  const PMUX_BASE = join(homedir(), ".amux", "sessions");
+  const AMUX_BASE = join(homedir(), ".amux", "sessions");
 
   function projectArtifactsDir(): string {
-    return join(PMUX_BASE, mySession!, "artifacts", "project");
+    return join(AMUX_BASE, mySession!, "artifacts", "project");
   }
 
 
   function agentArtifactsDir(agentId: string): string {
-    return join(PMUX_BASE, mySession!, "artifacts", "agents", agentId);
+    return join(AMUX_BASE, mySession!, "artifacts", "agents", agentId);
   }
 
   function ensureArtifactDirs(): void {
@@ -1950,7 +1950,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   async function applyDefaultModel(ctx: ExtensionContext): Promise<void> {
-    const modelStr = process.env.PMUX_MODEL;
+    const modelStr = process.env.AMUX_MODEL;
     if (!modelStr) {
       if (mySession) {
         const config = await readSessionConfig(mySession);
