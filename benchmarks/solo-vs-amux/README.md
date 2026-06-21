@@ -18,11 +18,14 @@ benchmarks/solo-vs-amux/bench.sh run-amux 1
 /tmp/amux-bench/amux-task-1/run-developer.sh
 /tmp/amux-bench/amux-task-1/run-reviewer.sh
 
-# 4. After running each arm, collect results
+# 4. If a run gets stuck, stop benchmark processes under BENCH_ROOT
+benchmarks/solo-vs-amux/bench.sh stop
+
+# 5. After running each arm, collect results
 benchmarks/solo-vs-amux/bench.sh collect solo 1
 benchmarks/solo-vs-amux/bench.sh collect amux 1
 
-# 5. Generate report
+# 6. Generate report
 benchmarks/solo-vs-amux/bench.sh report
 ```
 
@@ -33,7 +36,7 @@ The harness creates **isolated git clones** at a fixed base commit. The solo arm
 **Solo arm**: A single agent receives the task description and works independently — discovers the codebase, designs the approach, implements, and tests.
 
 **Amux arm**: Three agents work sequentially:
-1. **Architect** reads the codebase and writes a spec/plan (compressed intent)
+1. **Architect** reads the codebase and writes a compact spec/plan (target 100-150 lines) as compressed intent
 2. **Developer** implements from the spec without re-reading the full codebase
 3. **Reviewer** checks the implementation against the spec and acceptance criteria
 
@@ -50,6 +53,7 @@ Override via environment variables:
 | `PI_PROVIDER` | _(none)_ | Pin provider (e.g., `deepseek`) |
 | `PI_MODEL` | _(none)_ | Pin model (e.g., `deepseek/deepseek-v4-pro`) |
 | `PI_THINKING` | _(none)_ | Thinking mode (e.g., `high`) |
+| `BENCH_TIMEOUT_SECONDS` | `0` | Optional per-agent timeout; `0` disables timeout |
 
 ## Tasks
 
@@ -60,10 +64,10 @@ See `tasks/` for benchmark task definitions. Each task describes:
 
 ## Token Measurement
 
-The harness collects diffs, test output, and commits. Token measurement is currently **manual** — check your provider's dashboard or Pi session logs.
+The harness collects diffs, test output, commits, terminal logs, and isolated Pi session files under `$BENCH_ROOT/pi-sessions`. Token measurement is still **manual** — check your provider's dashboard or Pi session logs.
 
 **Honest measurement order** (from SPEC-10):
-1. Exact provider/Pi token usage from session JSON (preferred)
+1. Exact provider/Pi token usage from the isolated session files or provider dashboard (preferred)
 2. Full transcript token estimate
 3. Stdout chars/4 as last-resort proxy (clearly labelled)
 
@@ -78,7 +82,8 @@ The report must state which method was used. Do not claim efficiency without exa
 ## Limitations
 
 - Runs are semi-manual — the harness prepares workspaces and executable Pi scripts, but the operator still runs each arm and records exact provider token usage externally when needed.
-- Token measurement depends on provider tooling, not the harness.
+- Generated Pi scripts use isolated session storage, not `--no-session`, so local session logs can be inspected without contaminating normal Pi history.
+- Token measurement depends on provider/session tooling, not only the harness.
 - Tasks are designed for the amux codebase; results may not generalize.
 - The amux arm has coordination overhead; small tasks may not show compression benefit.
 - Quality scoring is manual (see `scorecard-template.md`).
