@@ -310,6 +310,10 @@ Requires Node >= 22 (uses `--experimental-strip-types`).
 npm test    # Parse-check all .ts files + run E2E flow tests
 ```
 
+### Benchmarks
+
+See [`benchmarks/solo-vs-amux/`](benchmarks/solo-vs-amux/) for the solo-vs-amux token efficiency benchmark harness.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
