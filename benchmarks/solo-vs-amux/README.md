@@ -64,6 +64,12 @@ The harness collects diffs, test output, and commits. Token measurement is curre
 
 The report must state which method was used. Do not claim efficiency without exact/fair measurement.
 
+## Analysis & Scoring
+
+- **[scorecard-template.md](scorecard-template.md)** — Copy per run. Quality rubric (0-15), acceptance criteria checklist, token measurement, rework tracking, failure-mode annotations.
+- **[analysis-guide.md](analysis-guide.md)** — How to interpret results: failure modes, token measurement caveats, what NOT to claim.
+- **[worked-example.md](worked-example.md)** — Lessons from the initial pilot run.
+
 ## Limitations
 
 - Runs are manual — the harness prepares workspaces but does not automate Pi invocations.
@@ -87,5 +93,7 @@ benchmarks/solo-vs-amux/
     architect.md            Architect prompt
     developer.md            Developer prompt
     reviewer.md             Reviewer prompt
-  scorecard-template.md     Manual quality scoring template
+  scorecard-template.md     Quality scoring rubric and template
+  analysis-guide.md         Interpretation guide and failure modes
+  worked-example.md         Lessons from initial pilot
 ```
