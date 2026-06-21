@@ -43,6 +43,65 @@ function typeLabel(item: BacklogItem): string {
   return item.itemType && item.itemType !== "task" ? ` (${item.itemType})` : "";
 }
 
+// ─── Agent Presence ──────────────────────────────────────────
+
+export interface AgentPresenceInfo {
+  id: string;
+  name: string;
+  role?: string;
+  roleName?: string;
+  status: string;
+  availability?: string;
+  cwd?: string;
+}
+
+export interface AgentWorkState {
+  active?: BacklogItem;
+  assigned: BacklogItem[];
+}
+
+export interface RenderAgentPresenceOptions {
+  currentAgentId?: string;
+  address?: string;
+  includeCwd?: boolean;
+}
+
+/** Derive an agent's current work from backlog state. */
+export function agentWorkState(agentId: string, tasks: BacklogItem[]): AgentWorkState {
+  return {
+    active: tasks.find((t) => t.status === "in-progress" && t.assigneeId === agentId),
+    assigned: tasks.filter((t) => t.status === "assigned" && t.assigneeId === agentId),
+  };
+}
+
+/** Render a compact work-state label such as "working: TASK-32". */
+export function renderAgentWorkState(agentId: string, tasks: BacklogItem[]): string | null {
+  const state = agentWorkState(agentId, tasks);
+  if (state.active) return `working: ${state.active.id}`;
+  if (state.assigned.length === 1) return `assigned: ${state.assigned[0]!.id}`;
+  if (state.assigned.length > 1) return `assigned: ${state.assigned.length} tasks`;
+  return null;
+}
+
+/** Render one agent row with derived active/assigned task context. */
+export function renderAgentPresence(
+  agent: AgentPresenceInfo,
+  tasks: BacklogItem[],
+  options: RenderAgentPresenceOptions = {},
+): string {
+  const name = options.address || agent.name;
+  const isMe = options.currentAgentId === agent.id;
+  const marker = isMe ? " (you)" : "";
+  const roleLabel = agent.roleName || agent.role || "agent";
+  const work = renderAgentWorkState(agent.id, tasks);
+  const availability = agent.availability && agent.availability !== "idle" && agent.availability !== "working"
+    ? agent.availability
+    : undefined;
+  const status = [agent.status, availability, work].filter(Boolean).join(", ");
+  const cwd = options.includeCwd && agent.cwd ? ` (cwd: ${agent.cwd})` : "";
+  return `  - ${name}${marker} [${status}]: ${roleLabel}${cwd}`;
+}
+
 // ─── Task List Row ───────────────────────────────────────────
 
 /**

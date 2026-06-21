@@ -102,6 +102,8 @@ import {
   renderTaskListRow,
   renderTaskDetails,
   renderProgressSummary,
+  renderAgentWorkState,
+  renderAgentPresence,
   formatDuration,
 } from "../core/renderers.ts";
 import {
@@ -1867,6 +1869,37 @@ describe("Renderer functions", () => {
   it("renderTaskListRow shows assignee", () => {
     const row = renderTaskListRow(baseItem({ status: "in-progress", assignee: "Alice" }), [], 1);
     assert.ok(row.includes("Alice"));
+  });
+
+  it("renderAgentWorkState derives active and assigned work", () => {
+    const tasks = [
+      baseItem({ id: "TASK-01", status: "assigned", assigneeId: "a1" }),
+      baseItem({ id: "TASK-02", status: "in-progress", assigneeId: "a1" }),
+    ];
+    assert.equal(renderAgentWorkState("a1", tasks), "working: TASK-02");
+    assert.equal(renderAgentWorkState("missing", tasks), null);
+  });
+
+  it("renderAgentPresence shows active task", () => {
+    const tasks = [baseItem({ id: "TASK-02", status: "in-progress", assigneeId: "a1" })];
+    const row = renderAgentPresence(
+      { id: "a1", name: "Alice", roleName: "developer", status: "online", availability: "working", cwd: "/repo" },
+      tasks,
+      { currentAgentId: "a1", includeCwd: true },
+    );
+    assert.ok(row.includes("Alice (you)"));
+    assert.ok(row.includes("working: TASK-02"));
+    assert.ok(row.includes("developer"));
+    assert.ok(row.includes("/repo"));
+  });
+
+  it("renderAgentPresence shows assigned work when idle", () => {
+    const tasks = [baseItem({ id: "TASK-03", status: "assigned", assigneeId: "a1" })];
+    const row = renderAgentPresence(
+      { id: "a1", name: "Alice", roleName: "developer", status: "online", availability: "idle" },
+      tasks,
+    );
+    assert.ok(row.includes("assigned: TASK-03"));
   });
 
   it("renderTaskDetails includes all metadata", () => {

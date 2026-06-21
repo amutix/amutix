@@ -101,6 +101,7 @@ import {
   renderTaskListRow,
   renderTaskDetails,
   renderProgressSummary,
+  renderAgentPresence,
   formatDuration,
 } from "../core/renderers";
 import {
@@ -453,24 +454,26 @@ export default function (pi: ExtensionAPI) {
       if (myRoleName) extra += `\nRole: ${myRoleName}.`;
 
       if (projectAgents.length > 0) {
+        const backlog = await readBacklog(mySession);
         const list = projectAgents
-          .map((a) => {
-            const roleLabel = a.roleName || a.role;
-            const avail = a.availability ? `, ${a.availability}` : "";
-            return `  - ${a.name} (${roleLabel}) [${a.status}${avail}]`;
-          })
+          .map((a) => renderAgentPresence(a, backlog))
           .join("\n");
         extra += `\n\nSame-session agents (address as "${mySession}/<name>" or just "<name>"):\n${list}`;
       }
 
 
       if (crossSessionAgents.length > 0) {
-        const list = crossSessionAgents
-          .map((a) => {
-            const parts = [a.roleName || a.role, a.name].filter(Boolean);
-            return `  - ${formatAddress(a.session, a.name)}: ${parts.join(":")} [${a.status}]`;
-          })
-          .join("\n");
+        const backlogBySession = new Map<string, BacklogItem[]>();
+        const lines: string[] = [];
+        for (const agent of crossSessionAgents) {
+          if (!backlogBySession.has(agent.session)) {
+            backlogBySession.set(agent.session, await readBacklog(agent.session));
+          }
+          lines.push(renderAgentPresence(agent, backlogBySession.get(agent.session)!, {
+            address: formatAddress(agent.session, agent.name),
+          }));
+        }
+        const list = lines.join("\n");
         extra += `\nCross-session agents (must use full address "session/name"):\n${list}`;
       }
 
@@ -641,16 +644,21 @@ export default function (pi: ExtensionAPI) {
       }
 
       const sections: string[] = [];
+      const backlogBySession = new Map<string, BacklogItem[]>();
       for (const [session, sessionAgents] of bySession) {
         const isCurrent = session === mySession;
         const header = isCurrent ? `Session: ${session} (current)` : `Session: ${session}`;
-        const lines = sessionAgents.map((a) => {
-          const isMe = a.id === myId;
-          const marker = isMe ? " (you)" : "";
-          const addr = formatAddress(session, a.name);
-          const label = [a.roleName, a.name].filter(Boolean).join(":");
-          return `  - ${addr}${marker} [${a.status}]: ${label} (cwd: ${a.cwd})`;
-        });
+        if (!backlogBySession.has(session)) {
+          backlogBySession.set(session, await readBacklog(session));
+        }
+        const backlog = backlogBySession.get(session)!;
+        const lines = sessionAgents.map((a) =>
+          renderAgentPresence(a, backlog, {
+            currentAgentId: myId,
+            address: formatAddress(session, a.name),
+            includeCwd: true,
+          })
+        );
         sections.push(`${header}\n${lines.join("\n")}`);
       }
 
@@ -1466,16 +1474,13 @@ export default function (pi: ExtensionAPI) {
     }
 
     const agents = await getOnlineAgents(mySession);
-    const agentLines = agents.map((a) => {
-      const isMe = a.id === myId;
-      const marker = isMe ? " <-" : "";
-      const roleLabel = a.roleName ?? a.role;
-      return `  ${a.name} (${roleLabel})${marker}`;
-    });
+    const backlog = await readBacklog(mySession);
+    const agentLines = agents.map((a) =>
+      renderAgentPresence(a, backlog, { currentAgentId: myId })
+    );
 
     // Task state summary
     let taskLine = "";
-    const backlog = await readBacklog(mySession);
     const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
     const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === myId);
     if (inProgress.length > 0) {
