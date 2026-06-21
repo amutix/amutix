@@ -42,7 +42,6 @@ import {
   getOnlineAgents,
   getOfflineAgents,
   isEffectivelyOnline,
-  shouldSignalAgentForWork,
   HEARTBEAT_INTERVAL_MS,
   resolveAgent,
   parseAddress,
@@ -74,14 +73,10 @@ import {
   toWorkspaceRelative,
 } from "../core/reservations";
 import {
-  type Task,
   type BacklogItem,
   readBacklog,
-  writeBacklog,
   addTask,
   getTask,
-  nextTaskId,
-  unmetDependencies,
   readSpecPreview,
   planTaskSpec,
 } from "../core/backlog";
@@ -102,6 +97,14 @@ import {
   renderProgressSummary,
   formatDuration,
 } from "../core/renderers";
+import {
+  serviceAssignTasks,
+  servicePickTask,
+  serviceCompleteTask,
+  serviceDropTask,
+  serviceBlockTask,
+  serviceGetTaskShowData,
+} from "../core/task-service";
 
 
 
@@ -1034,10 +1037,15 @@ export default function (pi: ExtensionAPI) {
         // -- show ---------------------------------------------
         case "show": {
           if (!params.id) throw new Error("Task ID is required for show.");
-          const { text, task, comments } = await buildTaskDetails(mySession, params.id, myId);
+          const data = await serviceGetTaskShowData(mySession, params.id);
+          const text = renderTaskDetails(data.task, data.allTasks, {
+            currentAgentId: myId,
+            comments: data.comments,
+            specPreview: data.specPreview,
+          });
           return {
             content: [{ type: "text", text }],
-            details: { task, comments },
+            details: { task: data.task, comments: data.comments },
           };
         }
 
@@ -1118,7 +1126,7 @@ export default function (pi: ExtensionAPI) {
           if (!params.id) throw new Error("Task ID(s) required for assign (comma-separated for batch).");
           if (!params.to) throw new Error("Target agent name is required for assign.");
 
-          // Reject cross-session assignment — task lives in current session backlog
+          // Reject cross-session assignment
           const { session: targetSession } = parseAddress(params.to, mySession);
           if (targetSession !== mySession) {
             throw new Error(
@@ -1129,60 +1137,14 @@ export default function (pi: ExtensionAPI) {
           }
 
           const target = await resolveAgent(params.to, mySession);
-          if (!target) {
-            throw new Error(`Agent "${params.to}" not found.`);
-          }
+          if (!target) throw new Error(`Agent "${params.to}" not found.`);
 
-          // Support comma-separated IDs for batch assignment
           const taskIds = params.id.split(",").map((s: string) => s.trim()).filter(Boolean);
+          const result = await serviceAssignTasks(mySession, taskIds, target.id, target.name, myId, myName);
 
-          const tasks = await readBacklog(mySession);
-          const toAssign: Task[] = [];
-
-          // Validate all tasks before assigning any
-          for (const taskId of taskIds) {
-            const task = tasks.find((t) => t.id === taskId);
-            if (!task) throw new Error(`Task ${taskId} not found.`);
-            if (task.status === "in-progress") {
-              throw new Error(
-                `${taskId} is actively being worked on by ${task.assignee}. Ask them to drop it first.`
-              );
-            }
-            if (task.status === "done") throw new Error(`${taskId} is already done.`);
-            toAssign.push(task);
-          }
-
-          // Assign all
-          const now = new Date().toISOString();
-          for (const task of toAssign) {
-            task.status = "assigned";
-            task.assignee = target.name;
-            task.assigneeId = target.id;
-            task.updatedAt = now;
-          }
-          await writeBacklog(mySession, tasks);
-
-          // Record assignment activity
-          for (const t of toAssign) {
-            appendTaskComment(mySession, t.id, {
-              timestamp: now,
-              agent: myName,
-              agentId: myId,
-              type: "activity",
-              text: `Assigned to ${target.name} by ${myName}`,
-            });
-          }
-
-          // Generic attention signal for available agents (coalesced).
-          // A stale `working` availability should not suppress assigned-work
-          // nudges when the target has no active in-progress backlog item.
-          const targetAgent = await findById(mySession, target.id);
-          const targetHasActiveWork = tasks.some((t) =>
-            t.status === "in-progress" && t.assigneeId === target.id
-          );
-          if (targetAgent && shouldSignalAgentForWork(targetAgent, targetHasActiveWork)) {
-            await updateAgent(mySession, target.id, { attentionPending: true });
-            sendToInbox(mySession, target.id, {
+          // Pi-specific: deliver generic attention signal when service requests it.
+          if (result.shouldSignal) {
+            sendToInbox(mySession, result.targetId, {
               id: newMessageId(),
               from: myId,
               fromName: myName || "system",
@@ -1192,13 +1154,13 @@ export default function (pi: ExtensionAPI) {
             });
           }
 
-          const assignedIds = toAssign.map((t) => t.id).join(", ");
+          const assignedIds = result.assigned.map((t) => t.id).join(", ");
           return {
             content: [{
               type: "text",
               text: `Assigned ${assignedIds} to ${target.name}. Task state updated; visible via amux_task show.`,
             }],
-            details: { tasks: toAssign },
+            details: { tasks: result.assigned },
           };
         }
 
@@ -1206,104 +1168,18 @@ export default function (pi: ExtensionAPI) {
         case "pick": {
           if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
 
-          const tasks = await readBacklog(mySession);
-          let task: Task | undefined;
+          const pickResult = await servicePickTask(mySession, params.id || undefined, myId, myName);
 
-          if (params.id) {
-            task = tasks.find((t) => t.id === params.id);
-            if (!task) throw new Error(`Task ${params.id} not found.`);
-
-            if (task.status === "assigned" && task.assigneeId !== myId) {
-              throw new Error(
-                `${params.id} is assigned to ${task.assignee}, waiting for their response.`
-              );
-            }
-            if (task.status === "in-progress") {
-              throw new Error(
-                `${params.id} is already in progress${task.assignee ? ` by ${task.assignee}` : ""}.`
-              );
-            }
-            if (task.status === "done") {
-              throw new Error(`${params.id} is already done.`);
-            }
-
-            // Check dependency satisfaction
-            const unmet = unmetDependencies(task, tasks);
-            if (unmet.length > 0) {
-              throw new Error(
-                `${params.id} has unfinished dependencies: ${unmet.join(", ")}. ` +
-                `Complete those tasks first.`
-              );
-            }
-          } else {
-            // Auto-pick: prefer assigned-to-self with met deps, then open todo
-            task = tasks.find((t) => t.status === "assigned" && t.assigneeId === myId && unmetDependencies(t, tasks).length === 0)
-              || tasks.find((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0);
-            if (!task) {
-              throw new Error(
-                "No tasks available to pick. All tasks are assigned, in progress, blocked, done, or waiting on dependencies."
-              );
-            }
-          }
-
-          // Claim the task
-          task.status = "in-progress";
-          task.assignee = myName;
-          task.assigneeId = myId;
-          task.blockedReason = undefined;
-          task.updatedAt = new Date().toISOString();
-          await writeBacklog(mySession, tasks);
-
-          appendTaskComment(mySession, task.id, {
-            timestamp: task.updatedAt,
-            agent: myName,
-            agentId: myId,
-            type: "activity",
-            text: `Picked by ${myName}`,
-          });
-
-          // Auto-set availability to working
-          await updateAgent(mySession, myId, {
-            availability: "working",
-            availabilityUpdatedAt: new Date().toISOString(),
-          });
-
-          // Auto-reserve files (partial success  -- Option B)
-          const reserved: string[] = [];
-          const conflicts: Array<{ path: string; detail: string }> = [];
-
-          if (task.files?.length) {
-            const online = await getOnlineAgents(mySession).catch(() => [] as AgentInfo[]);
-            const onlineIds = online.map((a) => a.id);
-            const reserveReason = `${task.id}: ${task.title}`;
-
-            for (const file of task.files) {
-              try {
-                await reserve(mySession, [file], myId, myName, reserveReason, onlineIds);
-                reserved.push(file);
-              } catch (err) {
-                conflicts.push({
-                  path: file,
-                  detail: err instanceof Error ? err.message : String(err),
-                });
-              }
-            }
-          }
-
-          // Build response
-          let text = `✓ Picked ${task.id}: ${task.title}`;
-          if (params.reason) text += `\n  Approach: ${params.reason}`;
-          if (reserved.length > 0) text += `\n  Reserved: ${reserved.join(", ")}`;
-          if (conflicts.length > 0) {
-            for (const c of conflicts) {
-              text += `\n  ⚠️ Could not reserve: ${c.path}  -- ${c.detail}`;
-            }
-            text += `\n  → Consider coordinating via amux_send.`;
+          let pickText = `\u2713 Picked ${pickResult.task.id}: ${pickResult.task.title}`;
+          if (params.reason) pickText += `\n  Approach: ${params.reason}`;
+          if (pickResult.reserved.length > 0) pickText += `\n  Reserved: ${pickResult.reserved.join(", ")}`;
+          if (pickResult.conflicts.length > 0) {
+            pickText += `\n  \u26a0\ufe0f Could not reserve: ${pickResult.conflicts.map((c) => `${c.path} (${c.detail})`).join("; ")}`;
           }
 
           return {
-            content: [{ type: "text", text }],
-            details: { task, reserved, conflicts },
+            content: [{ type: "text", text: pickText }],
+            details: pickResult,
           };
         }
 
@@ -1312,56 +1188,15 @@ export default function (pi: ExtensionAPI) {
           if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for done.");
 
-          const tasks = await readBacklog(mySession);
-          const task = tasks.find((t) => t.id === params.id);
-          if (!task) throw new Error(`Task ${params.id} not found.`);
-          if (task.status === "done") throw new Error(`${params.id} is already done.`);
+          const doneResult = await serviceCompleteTask(mySession, params.id, myId, myName || "agent", params.summary);
 
-          if (task.assigneeId && task.assigneeId !== myId) {
-            throw new Error(
-              `${params.id} is assigned to ${task.assignee}. Only the assignee can mark it done.`
-            );
-          }
-
-          task.status = "done";
-          task.completedAt = new Date().toISOString();
-          task.updatedAt = new Date().toISOString();
-          if (params.summary) task.summary = params.summary;
-          await writeBacklog(mySession, tasks);
-
-          appendTaskComment(mySession, task.id, {
-            timestamp: task.updatedAt,
-            agent: myName || "agent",
-            agentId: myId,
-            type: "activity",
-            text: `Completed${params.summary ? `: ${params.summary}` : ""}`,
-          });
-
-          // Auto-set idle if no other in-progress tasks (preserve focus/away)
-          const remainingAfterDone = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
-          if (remainingAfterDone.length === 0) {
-            const agentSelf = await findById(mySession, myId);
-            if (!agentSelf?.availability || agentSelf.availability === "working") {
-              await updateAgent(mySession, myId, {
-                availability: "idle",
-                availabilityUpdatedAt: new Date().toISOString(),
-              });
-            }
-          }
-
-          // Auto-release file reservations
-          let released: string[] = [];
-          if (task.files?.length) {
-            released = await release(mySession, task.files, myId);
-          }
-
-          let text = `✓ Completed ${task.id}: ${task.title}`;
-          if (params.summary) text += `\n  Summary: ${params.summary}`;
-          if (released.length > 0) text += `\n  Released: ${released.join(", ")}`;
+          let doneText = `\u2713 Completed ${doneResult.task.id}: ${doneResult.task.title}`;
+          if (params.summary) doneText += `\n  Summary: ${params.summary}`;
+          if (doneResult.released.length > 0) doneText += `\n  Released: ${doneResult.released.join(", ")}`;
 
           return {
-            content: [{ type: "text", text }],
-            details: { task, released },
+            content: [{ type: "text", text: doneText }],
+            details: doneResult,
           };
         }
 
@@ -1370,57 +1205,14 @@ export default function (pi: ExtensionAPI) {
           if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for drop.");
 
-          const tasks = await readBacklog(mySession);
-          const task = tasks.find((t) => t.id === params.id);
-          if (!task) throw new Error(`Task ${params.id} not found.`);
-          if (task.status === "done") throw new Error(`${params.id} is already done.`);
-          if (task.status === "todo") throw new Error(`${params.id} is not assigned to anyone.`);
+          const dropResult = await serviceDropTask(mySession, params.id, myId, myName || "agent");
 
-          if (task.assigneeId && task.assigneeId !== myId) {
-            throw new Error(
-              `${params.id} is assigned to ${task.assignee}. Only the assignee can drop it.`
-            );
-          }
-
-          task.status = "todo";
-          task.assignee = undefined;
-          task.assigneeId = undefined;
-          task.blockedReason = undefined;
-          task.updatedAt = new Date().toISOString();
-          await writeBacklog(mySession, tasks);
-
-          appendTaskComment(mySession, task.id, {
-            timestamp: task.updatedAt,
-            agent: myName || "agent",
-            agentId: myId,
-            type: "activity",
-            text: `Dropped \u2014 back in queue`,
-          });
-
-          // Auto-set idle if no other in-progress tasks (preserve focus/away)
-          const remainingAfterDrop = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
-          if (remainingAfterDrop.length === 0) {
-            const agentSelf = await findById(mySession, myId);
-            if (!agentSelf?.availability || agentSelf.availability === "working") {
-              await updateAgent(mySession, myId, {
-                availability: "idle",
-                availabilityUpdatedAt: new Date().toISOString(),
-              });
-            }
-          }
-
-          // Auto-release file reservations
-          let released: string[] = [];
-          if (task.files?.length) {
-            released = await release(mySession, task.files, myId);
-          }
-
-          let text = `✓ Dropped ${task.id}: ${task.title}  -- back in queue`;
-          if (released.length > 0) text += `\n  Released: ${released.join(", ")}`;
+          let dropText = `\u2713 Dropped ${dropResult.task.id}: ${dropResult.task.title}  -- back in queue`;
+          if (dropResult.released.length > 0) dropText += `\n  Released: ${dropResult.released.join(", ")}`;
 
           return {
-            content: [{ type: "text", text }],
-            details: { task, released },
+            content: [{ type: "text", text: dropText }],
+            details: dropResult,
           };
         }
 
@@ -1430,33 +1222,11 @@ export default function (pi: ExtensionAPI) {
           if (!params.id) throw new Error("Task ID is required for block.");
           if (!params.reason) throw new Error("Reason is required for block.");
 
-          const tasks = await readBacklog(mySession);
-          const task = tasks.find((t) => t.id === params.id);
-          if (!task) throw new Error(`Task ${params.id} not found.`);
-          if (task.status === "done") throw new Error(`${params.id} is already done.`);
-
-          if (task.assigneeId && task.assigneeId !== myId) {
-            throw new Error(
-              `${params.id} is assigned to ${task.assignee}. Only the assignee can block it.`
-            );
-          }
-
-          task.status = "blocked";
-          task.blockedReason = params.reason;
-          task.updatedAt = new Date().toISOString();
-          await writeBacklog(mySession, tasks);
-
-          appendTaskComment(mySession, task.id, {
-            timestamp: task.updatedAt,
-            agent: myName || "agent",
-            agentId: myId,
-            type: "activity",
-            text: `Blocked: ${params.reason}`,
-          });
+          const blockResult = await serviceBlockTask(mySession, params.id, myId, myName || "agent", params.reason);
 
           return {
-            content: [{ type: "text", text: `⚠️ ${task.id} blocked: ${params.reason}` }],
-            details: { task },
+            content: [{ type: "text", text: `\u26a0\ufe0f ${blockResult.task.id} blocked: ${params.reason}` }],
+            details: blockResult,
           };
         }
 

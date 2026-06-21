@@ -95,6 +95,13 @@ import {
   renderProgressSummary,
   formatDuration,
 } from "../core/renderers.ts";
+import {
+  serviceAssignTasks,
+  servicePickTask,
+  serviceCompleteTask,
+  serviceDropTask,
+  serviceBlockTask,
+} from "../core/task-service.ts";
 
 // -- Test isolation --
 
@@ -1928,5 +1935,108 @@ describe("Renderer functions", () => {
     assert.ok(out.includes("[1/2]"));
     assert.ok(out.includes("Login"));
     assert.ok(out.includes("Signup"));
+  });
+});
+
+describe("Task workflow service attention", () => {
+  const session = testSession("svc-attention");
+  after(() => cleanupSession(session));
+
+  it("signals stale working assignee when they have no active work", async () => {
+    const devId = newAgentId();
+    const archId = newAgentId();
+    const now = new Date().toISOString();
+    await registerAgent(session, {
+      id: devId, name: "Dev", session, role: "developer",
+      cwd: "/tmp", pid: 1, status: "online", availability: "working",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(session, {
+      id: archId, name: "Arch", session, role: "architect",
+      cwd: "/tmp", pid: 2, status: "online", availability: "idle",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    const item = await addTask(session, {
+      title: "Wake stale worker", status: "todo",
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+
+    const result = await serviceAssignTasks(session, [item.id], devId, "Dev", archId, "Arch");
+
+    assert.equal(result.shouldSignal, true);
+    const dev = await findById(session, devId);
+    assert.equal(dev!.attentionPending, true);
+  });
+});
+
+describe("Task workflow service", () => {
+  const session = testSession("svc");
+  const devId = newAgentId();
+  const archId = newAgentId();
+  after(() => cleanupSession(session));
+
+  it("setup: register agents and create tasks", async () => {
+    await registerAgent(session, {
+      id: devId, name: "Dev", session, role: "developer",
+      cwd: "/tmp", pid: 1, status: "online", availability: "idle",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await registerAgent(session, {
+      id: archId, name: "Arch", session, role: "architect",
+      cwd: "/tmp", pid: 2, status: "online", availability: "idle",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    const now = new Date().toISOString();
+    const base = { createdBy: "Test", createdAt: now, updatedAt: now };
+    await addTask(session, { title: "First", status: "todo", files: ["a.ts"], ...base });
+    await addTask(session, { title: "Second", status: "todo", ...base });
+    await addTask(session, { title: "Third", status: "todo", dependsOn: ["TASK-01"], ...base });
+  });
+
+  it("serviceAssignTasks assigns batch and detects idle target", async () => {
+    const result = await serviceAssignTasks(session, ["TASK-01", "TASK-02"], devId, "Dev", archId, "Arch");
+    assert.equal(result.assigned.length, 2);
+    assert.equal(result.assigned[0]!.status, "assigned");
+    assert.equal(result.shouldSignal, true);
+  });
+
+  it("servicePickTask prefers assigned-to-self", async () => {
+    const result = await servicePickTask(session, undefined, devId, "Dev");
+    assert.equal(result.task.id, "TASK-01");
+    assert.equal(result.task.status, "in-progress");
+  });
+
+  it("servicePickTask rejects task with unmet deps", async () => {
+    await assert.rejects(
+      () => servicePickTask(session, "TASK-03", devId, "Dev"),
+      /unfinished dependencies/
+    );
+  });
+
+  it("serviceCompleteTask marks done with summary", async () => {
+    const result = await serviceCompleteTask(session, "TASK-01", devId, "Dev", "Done!");
+    assert.equal(result.task.status, "done");
+    assert.equal(result.task.summary, "Done!");
+  });
+
+  it("servicePickTask allows dep-met task after completion", async () => {
+    const result = await servicePickTask(session, "TASK-03", devId, "Dev");
+    assert.equal(result.task.id, "TASK-03");
+  });
+
+  it("serviceDropTask returns to queue", async () => {
+    const result = await serviceDropTask(session, "TASK-03", devId, "Dev");
+    assert.equal(result.task.status, "todo");
+    assert.equal(result.task.assignee, undefined);
+  });
+
+  it("serviceBlockTask enforces ownership", async () => {
+    await servicePickTask(session, "TASK-02", devId, "Dev");
+    await assert.rejects(
+      () => serviceBlockTask(session, "TASK-02", archId, "Arch", "test"),
+      /Only the assignee/
+    );
+    const result = await serviceBlockTask(session, "TASK-02", devId, "Dev", "Waiting on API");
+    assert.equal(result.task.status, "blocked");
   });
 });
