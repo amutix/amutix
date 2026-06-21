@@ -42,7 +42,7 @@ import {
   getOnlineAgents,
   getOfflineAgents,
   isEffectivelyOnline,
-  shouldSignalAgent,
+  shouldSignalAgentForWork,
   HEARTBEAT_INTERVAL_MS,
   resolveAgent,
   parseAddress,
@@ -1191,9 +1191,14 @@ export default function (pi: ExtensionAPI) {
             });
           }
 
-          // Generic attention signal for idle agents (coalesced)
+          // Generic attention signal for available agents (coalesced).
+          // A stale `working` availability should not suppress assigned-work
+          // nudges when the target has no active in-progress backlog item.
           const targetAgent = await findById(mySession, target.id);
-          if (targetAgent && shouldSignalAgent(targetAgent)) {
+          const targetHasActiveWork = tasks.some((t) =>
+            t.status === "in-progress" && t.assigneeId === target.id
+          );
+          if (targetAgent && shouldSignalAgentForWork(targetAgent, targetHasActiveWork)) {
             await updateAgent(mySession, target.id, { attentionPending: true });
             sendToInbox(mySession, target.id, {
               id: newMessageId(),

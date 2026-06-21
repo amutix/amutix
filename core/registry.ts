@@ -91,11 +91,22 @@ export function isEffectivelyOnline(agent: AgentInfo): boolean {
  * and does not already have a pending attention flag.
  */
 export function shouldSignalAgent(agent: AgentInfo): boolean {
-  return (
-    isEffectivelyOnline(agent) &&
-    (!agent.availability || agent.availability === "idle") &&
-    !agent.attentionPending
-  );
+  return shouldSignalAgentForWork(agent, true);
+}
+
+/**
+ * Check whether an agent should receive a generic assigned-work attention signal.
+ *
+ * A stale `working` availability can remain after work is closed by another
+ * agent or by recovery tooling. Treat `working` as interruptible only when the
+ * assignee has no active in-progress backlog item. Explicit focus/away and
+ * pending attention are still respected.
+ */
+export function shouldSignalAgentForWork(agent: AgentInfo, hasActiveWork: boolean): boolean {
+  if (!isEffectivelyOnline(agent) || agent.attentionPending) return false;
+  if (!agent.availability || agent.availability === "idle") return true;
+  if (agent.availability === "working" && !hasActiveWork) return true;
+  return false;
 }
 
 // ─── Paths ───────────────────────────────────────────────────

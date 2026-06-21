@@ -29,6 +29,7 @@ import {
   getOfflineAgents,
   isEffectivelyOnline,
   shouldSignalAgent,
+  shouldSignalAgentForWork,
   HEARTBEAT_TTL_MS,
   readRoles,
   addRole,
@@ -1350,6 +1351,27 @@ describe("Agent availability and attention signals", () => {
     await updateAgent(session, agentId, { availability: "working" });
     const agent = await findById(session, agentId);
     assert.equal(shouldSignalAgent(agent!), false);
+  });
+
+  it("shouldSignalAgentForWork treats stale working as signalable when no active work", async () => {
+    await updateAgent(session, agentId, { availability: "working", attentionPending: false });
+    const agent = await findById(session, agentId);
+    assert.equal(shouldSignalAgentForWork(agent!, true), false);
+    assert.equal(shouldSignalAgentForWork(agent!, false), true);
+  });
+
+  it("shouldSignalAgentForWork still respects focus, away, and pending attention", async () => {
+    await updateAgent(session, agentId, { availability: "focus", attentionPending: false });
+    let agent = await findById(session, agentId);
+    assert.equal(shouldSignalAgentForWork(agent!, false), false);
+
+    await updateAgent(session, agentId, { availability: "away", attentionPending: false });
+    agent = await findById(session, agentId);
+    assert.equal(shouldSignalAgentForWork(agent!, false), false);
+
+    await updateAgent(session, agentId, { availability: "working", attentionPending: true });
+    agent = await findById(session, agentId);
+    assert.equal(shouldSignalAgentForWork(agent!, false), false);
   });
 
   it("shouldSignalAgent is false for focus agent", async () => {
