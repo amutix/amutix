@@ -4,6 +4,14 @@ Multi-agent coordination for AI coding agents. Agents discover each other, commu
 
 Framework-agnostic core with a [Pi](https://github.com/earendil-works/pi) extension included.
 
+## Vision
+
+amux turns isolated AI coding agents into an aligned, communicating team that can deliver outcomes no single agent can reliably achieve alone.
+
+The project optimizes for efficient communication, high alignment, and synergistic collaboration: task-scoped discussion instead of scattered messages, state-derived context instead of stale instructions, and structured work coordination so specialized agents can plan, build, review, and harden software together.
+
+See [VISION.md](./VISION.md) for the full vision, principles, and rationale.
+
 ## Architecture
 
 ```

@@ -10,6 +10,7 @@
 - **Task detail shortcut**: `/amux show <ITEM-ID>` displays backlog item details, comments, parent context, and spec preview.
 - **Assignment attention recovery**: assigned-work nudges now handle stale `working` availability when the assignee has no active in-progress item.
 - **Read-only CLI phase 1**: `amux progress`, `amux show`, `amux list`/`amux task list`, and `amux status` now use shared services/renderers.
+- **Project vision**: `VISION.md` now states amux's goal of efficient communication, high alignment, and synergistic multi-agent collaboration.
 
 ### Changed
 
