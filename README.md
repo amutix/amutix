@@ -74,6 +74,7 @@ All commands are subcommands of `/amux`:
 | `/amux leave` | Leave project, return to solo mode |
 | `/amux manage` | Manage projects, agents, and roles (browse UI) |
 | `/amux progress` | Project progress overview |
+| `/amux show <ITEM-ID>` | Show backlog item details, comments, parent context, and spec preview |
 | `/amux new <type>` | Create project, agent, or role directly |
 | `/amux context` | Show/edit project context (CONTEXT.md) |
 | `/amux status set` | Set your availability (idle/working/focus/away) |
@@ -108,6 +109,7 @@ Task assignments are **state-derived** — agents discover their tasks from the 
 
 ```bash
 # View task details + comment history
+/amux show TASK-01
 amux_task({ action: "show", id: "TASK-01" })
 
 # Add a task-scoped comment (like PR comments)

@@ -1052,47 +1052,7 @@ export default function (pi: ExtensionAPI) {
         // -- show ---------------------------------------------
         case "show": {
           if (!params.id) throw new Error("Task ID is required for show.");
-          const tasks = await readBacklog(mySession);
-          const task = tasks.find((t) => t.id === params.id);
-          if (!task) throw new Error(`Task ${params.id} not found.`);
-
-          let text = `${task.id}: ${task.title}  [${task.status}]`;
-          if (task.description) text += `\n\n${task.description}`;
-          text += `\n\nStatus: ${task.status}`;
-          if (task.itemType && task.itemType !== "task") text += `\nType: ${task.itemType}`;
-          if (task.parentId) {
-            const parent = tasks.find((t) => t.id === task.parentId);
-            text += `\nParent: ${task.parentId}${parent ? `: ${parent.title}` : ""}`;
-          }
-          if (task.order != null) text += `\nOrder: ${task.order}`;
-          if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === myId ? " (you)" : ""}`;
-          if (task.dependsOn?.length) {
-            const unmet = unmetDependencies(task, tasks);
-            text += `\nDepends on: ${task.dependsOn.join(", ")}${unmet.length > 0 ? ` (waiting: ${unmet.join(", ")})` : " \u2713"}`;
-          }
-          if (task.files?.length) text += `\nFiles: ${task.files.join(", ")}`;
-          if (task.blockedReason) text += `\nBlocked: ${task.blockedReason}`;
-          if (task.summary) text += `\nSummary: ${task.summary}`;
-          text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
-          if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
-
-          // Spec preview
-          if (task.specPath) {
-            text += `\nSpec: ${task.specPath}`;
-            const preview = readSpecPreview(mySession, task.specPath, 1024);
-            if (preview) text += `\n\n${preview}`;
-          }
-
-          const comments = readTaskComments(mySession, task.id);
-          if (comments.length > 0) {
-            text += `\n\n\u2500\u2500 Comments (${comments.length}) \u2500\u2500`;
-            for (const c of comments) {
-              text += `\n${formatTaskComment(c)}`;
-            }
-          } else {
-            text += `\n\nNo comments yet. Use amux_task with action \"comment\" to add one.`;
-          }
-
+          const { text, task, comments } = await buildTaskDetails(mySession, params.id, myId);
           return {
             content: [{ type: "text", text }],
             details: { task, comments },
@@ -1634,13 +1594,15 @@ export default function (pi: ExtensionAPI) {
           return handleStatus(ctx);
         case "progress":
           return handleProgress(ctx);
+        case "show":
+          return handleShow(parts.slice(1), ctx);
         case "new":
           return handleNew(parts.slice(1), ctx);
         case "context":
           return handleContext(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
             "warning"
           );
       }
@@ -1683,9 +1645,77 @@ export default function (pi: ExtensionAPI) {
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
+  }
+
+  // -- task detail handler --
+
+  async function handleShow(args: string[], ctx: ExtensionContext): Promise<void> {
+    if (!mySession) {
+      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      return;
+    }
+
+    const id = args[0];
+    if (!id) {
+      ctx.ui.notify("Usage: /amux show <ITEM-ID>\nExample: /amux show TASK-01", "warning");
+      return;
+    }
+
+    try {
+      const { text } = await buildTaskDetails(mySession, id, myId);
+      ctx.ui.notify(text, "info");
+    } catch (err) {
+      ctx.ui.notify(err instanceof Error ? err.message : String(err), "warning");
+    }
+  }
+
+  async function buildTaskDetails(
+    session: string,
+    id: string,
+    viewerId?: string,
+  ): Promise<{ text: string; task: Task; comments: ReturnType<typeof readTaskComments> }> {
+    const tasks = await readBacklog(session);
+    const task = tasks.find((t) => t.id === id);
+    if (!task) throw new Error(`Task ${id} not found.`);
+
+    let text = `${task.id}: ${task.title}  [${task.status}]`;
+    if (task.description) text += `\n\n${task.description}`;
+    text += `\n\nStatus: ${task.status}`;
+    if (task.itemType && task.itemType !== "task") text += `\nType: ${task.itemType}`;
+    if (task.parentId) {
+      const parent = tasks.find((t) => t.id === task.parentId);
+      text += `\nParent: ${task.parentId}${parent ? `: ${parent.title}` : ""}`;
+    }
+    if (task.order != null) text += `\nOrder: ${task.order}`;
+    if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === viewerId ? " (you)" : ""}`;
+    if (task.dependsOn?.length) {
+      const unmet = unmetDependencies(task, tasks);
+      text += `\nDepends on: ${task.dependsOn.join(", ")}${unmet.length > 0 ? ` (waiting: ${unmet.join(", ")})` : " ✓"}`;
+    }
+    if (task.files?.length) text += `\nFiles: ${task.files.join(", ")}`;
+    if (task.blockedReason) text += `\nBlocked: ${task.blockedReason}`;
+    if (task.summary) text += `\nSummary: ${task.summary}`;
+    text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
+    if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
+
+    if (task.specPath) {
+      text += `\nSpec: ${task.specPath}`;
+      const preview = readSpecPreview(session, task.specPath, 1024);
+      if (preview) text += `\n\n${preview}`;
+    }
+
+    const comments = readTaskComments(session, task.id);
+    if (comments.length > 0) {
+      text += `\n\n── Comments (${comments.length}) ──`;
+      for (const c of comments) text += `\n${formatTaskComment(c)}`;
+    } else {
+      text += `\n\nNo comments yet. Use amux_task with action "comment" to add one.`;
+    }
+
+    return { text, task, comments };
   }
 
   // -- progress handler --

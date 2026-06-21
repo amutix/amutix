@@ -7,6 +7,7 @@
 - **Hierarchical progress view**: `/amux progress` and `amux_task summary` render parent/child backlog structure with status markers and child progress counts.
 - **Type-prefixed backlog IDs**: new items use prefixes such as `INIT-*`, `MS-*`, `BUG-*`, `CHORE-*`, `SPEC-*`, and `TASK-*` while preserving existing IDs.
 - **Task-linked specs foundation**: backlog items can link first-class specs via `specPath`, with safe path helpers, templates, previews, and `plan`/`edit-plan` tool actions.
+- **Task detail shortcut**: `/amux show <ITEM-ID>` displays backlog item details, comments, parent context, and spec preview.
 
 ### Changed
 
