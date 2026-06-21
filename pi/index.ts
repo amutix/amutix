@@ -61,6 +61,7 @@ import {
   appendToHistory,
   watchInbox,
   newMessageId,
+  formatMessageAge,
   type InboxMessage,
 } from "../core/messaging";
 import {
@@ -138,6 +139,15 @@ export default function (pi: ExtensionAPI) {
     return myRoleName ? `[amux:${addr} (${myRoleName})]` : `[amux:${addr}]`;
   }
 
+  function inboxMessagePrefix(msg: InboxMessage): string {
+    const age = formatMessageAge(msg.timestamp);
+    const catStr = msg.category ? ` · ${msg.category}` : "";
+    const taskStr = msg.taskId ? ` · ${msg.taskId}` : "";
+    return msg.fromRole
+      ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr} · sent ${age}]`
+      : `[amux:${msg.fromSession}/${msg.fromName}${catStr}${taskStr} · sent ${age}]`;
+  }
+
   /** Check if a role name matches a built-in role template. */
   function isBuiltinRole(name: string): boolean {
     return BUILTIN_ROLES.some((r) => r.name === name);
@@ -177,10 +187,7 @@ export default function (pi: ExtensionAPI) {
       appendToHistory(mySession!, msg);
       markAsDelivered(mySession!, myId!, filename);
 
-      const prefix = msg.fromRole
-        ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})]`
-        : `[amux:${msg.fromSession}/${msg.fromName}]`;
-      pi.sendUserMessage(`${prefix} ${msg.message}`, {
+      pi.sendUserMessage(`${inboxMessagePrefix(msg)} ${msg.message}`, {
         deliverAs: "followUp",
       });
     });
@@ -194,10 +201,7 @@ export default function (pi: ExtensionAPI) {
         markAsDelivered(mySession, myId, filename);
       }
 
-      const prefix = msg.fromRole
-        ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})]`
-        : `[amux:${msg.fromSession}/${msg.fromName}]`;
-      pi.sendUserMessage(`${prefix} ${msg.message}`, {
+      pi.sendUserMessage(`${inboxMessagePrefix(msg)} ${msg.message}`, {
         deliverAs: "followUp",
       });
     }
@@ -498,7 +502,7 @@ export default function (pi: ExtensionAPI) {
 - Use amux_task comment for task-scoped discussion, like PR comments. Prefer comments over amux_send for task feedback.
 - Use amux_send only for exceptional general communication that is not tied to a backlog item.
 - Use amux_list to refresh the list of available agents (set allSessions=true for cross-session).
-- Messages from other agents appear as "[amux:session/agent (role)] message".
+- Messages from other agents appear as "[amux:session/agent (role) \u00b7 sent Xm ago] message".
 - When you receive a [amux:...] message, treat it as a request from a teammate and respond helpfully.
 - Reply using amux_send with the sender's address.
 
@@ -680,17 +684,24 @@ export default function (pi: ExtensionAPI) {
     label: "Send to Agent",
     description:
       'Send a message to another amux agent. Use "name" for same-session or "session/name" for cross-session. ' +
-      "Delivered to the agent's inbox  -- works even if they're busy or offline.",
+      "Delivered to the agent's inbox  -- works even if they're busy or offline. " +
+      "For task-related discussion, prefer amux_task comment instead.",
     promptSnippet: "Send a message to a amux agent by name or session/name address",
     promptGuidelines: [
-      "Use amux_list first to see which agents are available before using amux_send.",
-      "When using amux_send, be specific about what you need from the other agent.",
+      "Use amux_send only for exceptional general communication not tied to a backlog item.",
+      "For task-related discussion, use amux_task comment instead  -- comments stay on the task.",
       'For cross-session agents, use the full address in amux_send: "session/name".',
       "After using amux_send, do not wait  -- continue with your own work unless you need their response first.",
     ],
     parameters: Type.Object({
       to: Type.String({ description: '"name" for same session, or "session/name" for cross-session' }),
       message: Type.String({ description: "Message or instruction to send" }),
+      category: Type.Optional(
+        StringEnum(["urgent", "fyi", "brainstorm"] as const, {
+          description: "Message intent. Use urgent sparingly; prefer task comments for task-related discussion.",
+        })
+      ),
+      taskId: Type.Optional(Type.String({ description: "Optional related task ID for context/staleness assessment" })),
     }),
 
     async execute(_id, params) {
@@ -716,6 +727,8 @@ export default function (pi: ExtensionAPI) {
         fromSession: mySession,
         timestamp: new Date().toISOString(),
         message: params.message,
+        category: params.category,
+        taskId: params.taskId,
       };
 
       sendToInbox(target.session, target.id, msg);

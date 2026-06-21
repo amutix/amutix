@@ -149,7 +149,7 @@ amux_task({ action: "comment", id: "TASK-01", content: "Looks good, one suggesti
 amux_task({ action: "summary" })
 ```
 
-Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Simple workflows can still mark work done directly. Use `amux_send` only for exceptional non-task communication.
+Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Simple workflows can still mark work done directly. Use `amux_send` only for exceptional non-task communication; delivered messages show intent and age so stale context is visible.
 
 When shaping larger work, create the high-level item first (`initiative` or `milestone`), add child executable items, review the structure with `/amux progress`, then assign the leaf work. Assign `task`/`bug`/`chore`/`spec` items rather than container items unless you intentionally want broad ownership.
 

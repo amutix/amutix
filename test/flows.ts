@@ -50,6 +50,7 @@ import {
   confirmDelivered,
   appendToHistory,
   newMessageId,
+  formatMessageAge,
   type InboxMessage,
 } from "../core/messaging.ts";
 
@@ -2145,5 +2146,31 @@ describe("CLI read-only commands", () => {
     const out = runCli("status", "--session", session);
     assert.ok(out.includes("CliAgent"));
     assert.ok(out.includes("online"));
+  });
+});
+
+describe("Message staleness metadata", () => {
+  it("formatMessageAge handles various time ranges", () => {
+    const now = Date.now();
+    assert.equal(formatMessageAge(new Date(now - 5000).toISOString()), "5s ago");
+    assert.equal(formatMessageAge(new Date(now - 120000).toISOString()), "2m ago");
+    assert.equal(formatMessageAge(new Date(now - 7200000).toISOString()), "2h ago");
+    assert.equal(formatMessageAge(new Date(now - 172800000).toISOString()), "2d ago");
+    assert.equal(formatMessageAge(new Date(now + 1000).toISOString()), "just now");
+  });
+
+  it("InboxMessage category and taskId are optional (backward compat)", () => {
+    const msg: InboxMessage = {
+      id: "test", from: "a", fromName: "Alice", fromSession: "s",
+      timestamp: new Date().toISOString(), message: "Hello",
+    };
+    assert.equal(msg.category, undefined);
+    assert.equal(msg.taskId, undefined);
+
+    const withMeta: InboxMessage = {
+      ...msg, category: "fyi", taskId: "TASK-01",
+    };
+    assert.equal(withMeta.category, "fyi");
+    assert.equal(withMeta.taskId, "TASK-01");
   });
 });

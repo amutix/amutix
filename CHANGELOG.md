@@ -13,6 +13,7 @@
 - **Project vision**: `VISION.md` now states amux's goal of efficient communication, high alignment, and synergistic multi-agent collaboration.
 - **First-class project vision/context interface**: `amux_project` and `/amux project vision ...` manage the prompt-injected project alignment artifact without direct file edits.
 - **Team-state visibility and review handoff**: agent presence surfaces active/assigned work, and `amux_task review` marks implementation ready for review before final `done`.
+- **Stale-aware direct messages**: `amux_send` messages now carry optional intent/task metadata and display sent age on delivery.
 
 ### Changed
 

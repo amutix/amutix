@@ -41,6 +41,26 @@ export interface InboxMessage {
   fromSession: string; // sender session
   timestamp: string; // ISO 8601
   message: string; // message content
+  category?: string; // intent hint: "urgent", "fyi", "brainstorm"
+  taskId?: string; // optional related task ID for context
+}
+
+/**
+ * Format a message's age relative to now.
+ * Returns a human-readable string like "2m ago", "3h ago", "1d ago".
+ * Used by adapters to display staleness context on delivered messages.
+ */
+export function formatMessageAge(timestamp: string): string {
+  const ms = Date.now() - new Date(timestamp).getTime();
+  if (ms < 0) return "just now";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 // ─── Paths ───────────────────────────────────────────────────
