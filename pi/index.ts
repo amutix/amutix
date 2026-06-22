@@ -2910,18 +2910,10 @@ Read and write shared documents using the standard read/write/edit tools.
         return;
       }
 
-      // The host footer is a single terminal-width line, so put the active
-      // agent first and keep the team summary compact. If the line is clipped,
-      // the important identity (agent + session) remains visible.
-      const active = theme.fg("accent", `◆ ${me.name}@${mySession}`);
-      const role = me.roleName ? theme.fg("dim", ` (${me.roleName})`) : "";
-      const others = agents.filter((a) => a.id !== myId);
-      const onlineSummary = theme.fg("dim", ` • ${agents.length} online`);
-      const otherSummary = others.length > 0
-        ? theme.fg("dim", `: ${others.map((a) => a.name).join(", ")}`)
-        : "";
-
-      ctx.ui.setStatus("amux", active + role + onlineSummary + otherSummary);
+      // The host footer is aggressively width-limited and shared with other
+      // extensions. Keep amux status to the irreducible identity only; richer
+      // team/role state is available in `/amux` and prompt team context.
+      ctx.ui.setStatus("amux", theme.fg("accent", `◆ ${me.name}@${mySession}`));
     } catch {
       // Ignore widget errors
     }
