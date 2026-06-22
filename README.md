@@ -101,6 +101,7 @@ All commands are subcommands of `/amux`:
 | `/amux project` | Show/set project vision/context |
 | `/amux context` | Legacy alias for project context (CONTEXT.md) |
 | `/amux wow` | Show/set team Ways of Working (WOW.md) |
+| `/amux prompt` | Preview the amux coordination block appended to your system prompt (debug) |
 | `/amux status set` | Set your availability (idle/working/focus/away) |
 | `/amux workspace` | Git workspace operations (sync, status) |
 
@@ -145,6 +146,16 @@ Project vision/context is stored in `artifacts/project/CONTEXT.md` and auto-inje
 ```
 
 Ways of Working is stored in `artifacts/project/WOW.md` and auto-injected into agent prompts after the built-in common principles. Use it for project-specific collaboration norms: planning depth, review policy, definition of done, communication defaults, escalation, and retro habits. Keep it concise because it appears in every agent's prompt. Agents can also use the `amux_wow` tool.
+
+### Prompt preview
+
+```bash
+/amux prompt                      # Section summary for this agent
+/amux prompt roleProfile          # Preview one section
+/amux prompt all                  # Explicitly show the full amux-appended block
+```
+
+amux **appends** a coordination block to Pi's base system prompt — it never replaces the base prompt. `/amux prompt` is a debug surface for understanding what each agent actually sees. By default it shows a compact section summary to avoid dumping the whole prompt; inspect a single section by name or use `/amux prompt all` when you explicitly want the full amux-appended block. Pi's base system prompt is **not** shown (amux never sees or owns it). The preview uses the same gathering path that injects the live prompt, so it never drifts from what agents receive.
 
 ### Task Workflow
 

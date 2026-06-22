@@ -61,6 +61,12 @@ import {
 import {
   assembleAgentPrompt,
   COMMON_PRINCIPLES,
+  formatPromptPreview,
+  formatPromptSectionPreview,
+  formatPromptSummary,
+  gatheredSectionNames,
+  skippedSectionNames,
+  PROMPT_SECTION_ORDER,
 } from "../core/prompt-assembly.ts";
 
 import {
@@ -2375,6 +2381,87 @@ describe("Prompt assembly", () => {
     assert.ok(COMMON_PRINCIPLES.includes("amux_task comment"));
     assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
     assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
+  });
+});
+
+describe("Prompt preview / debug surface", () => {
+  it("PROMPT_SECTION_ORDER lists all eight sections in the deliberate order", () => {
+    assert.deepEqual([...PROMPT_SECTION_ORDER], [
+      "commonPrinciples",
+      "waysOfWorking",
+      "projectContext",
+      "roleProfile",
+      "identity",
+      "workState",
+      "teamContext",
+      "interfaceGuidance",
+    ]);
+  });
+
+  it("gatheredSectionNames lists present sections, skippedSectionNames lists absent ones", () => {
+    const sections = {
+      commonPrinciples: "COMMON",
+      identity: "IDENT",
+      roleProfile: "ROLE",
+    };
+    assert.deepEqual(gatheredSectionNames(sections), ["Common principles", "Role profile", "Identity & workspace"]);
+    const skipped = skippedSectionNames(sections);
+    assert.ok(skipped.includes("Ways of Working"));
+    assert.ok(skipped.includes("Work state"));
+    assert.equal(skipped.length, PROMPT_SECTION_ORDER.length - 3);
+  });
+
+  it("treats whitespace-only sections as skipped", () => {
+    const skipped = skippedSectionNames({ workState: "   \n  ", projectContext: "\t" });
+    assert.ok(skipped.includes("Work state"));
+    assert.ok(skipped.includes("Project context"));
+    assert.deepEqual(gatheredSectionNames({ workState: "   " }), []);
+  });
+
+  it("formatPromptSummary is non-polluting by default", () => {
+    const out = formatPromptSummary({ commonPrinciples: "COMMON", identity: "IDENT" });
+    assert.ok(out.includes("APPENDS a coordination block"));
+    assert.ok(out.includes("base system prompt is NOT shown"));
+    assert.ok(/Sections gathered \(2\/8\)/.test(out));
+    assert.ok(out.includes("/amux prompt all"));
+    assert.equal(out.includes("---- composed block"), false);
+    assert.equal(out.includes("COMMON"), false);
+    assert.equal(out.includes("IDENT"), false);
+  });
+
+  it("formatPromptSectionPreview shows one focused section", () => {
+    const out = formatPromptSectionPreview({ commonPrinciples: "COMMON", identity: "IDENT" }, "identity");
+    assert.ok(out.includes("Section: Identity & workspace (identity)"));
+    assert.ok(out.includes("IDENT"));
+    assert.equal(out.includes("COMMON"), false);
+  });
+
+  it("formatPromptPreview states the base prompt is NOT shown and includes full block only when explicit", () => {
+    const out = formatPromptPreview({ commonPrinciples: "COMMON", identity: "IDENT" });
+    assert.ok(out.includes("APPENDS a coordination block"));
+    assert.ok(out.includes("base system prompt is NOT shown"));
+    assert.ok(/Sections gathered \(2\/8\)/.test(out));
+    // The composed block is included verbatim
+    assert.ok(out.includes("---- composed block (appended to base prompt) ----"));
+    assert.ok(out.includes("COMMON"));
+    assert.ok(out.includes("IDENT"));
+    // Skipped sections are surfaced for debugging
+    assert.ok(out.includes("Sections empty/skipped"));
+  });
+
+  it("formatPromptPreview reports none gathered and explains nothing is appended when all empty", () => {
+    const out = formatPromptPreview({});
+    assert.match(out, /Sections gathered \(0\/8\): \(none\)/);
+    assert.ok(out.includes("nothing is appended to the base prompt"));
+  });
+
+  it("formatPromptPreview composes the block in the same order as assembleAgentPrompt", () => {
+    const sections = { commonPrinciples: "A", roleProfile: "B", identity: "C" };
+    const preview = formatPromptPreview(sections);
+    const marker = preview.indexOf("---- composed block");
+    const block = preview.slice(marker);
+    assert.ok(block.indexOf("A") < block.indexOf("B"));
+    assert.ok(block.indexOf("B") < block.indexOf("C"));
   });
 });
 

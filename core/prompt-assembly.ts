@@ -1,4 +1,4 @@
-/**
+/*
  * amux — Agent Prompt Assembly
  *
  * Deliberate, reviewable composition of the coordination block that amux
@@ -65,6 +65,21 @@ const SECTION_ORDER: (keyof PromptSections)[] = [
   "interfaceGuidance",
 ];
 
+/** Human-readable labels for each section, for previews/debug output. */
+export const PROMPT_SECTION_LABELS: Record<keyof PromptSections, string> = {
+  commonPrinciples: "Common principles",
+  waysOfWorking: "Ways of Working",
+  projectContext: "Project context",
+  roleProfile: "Role profile",
+  identity: "Identity & workspace",
+  workState: "Work state",
+  teamContext: "Team context",
+  interfaceGuidance: "Interface guidance",
+};
+
+/** The deliberate section order, exported for previews/tests. */
+export const PROMPT_SECTION_ORDER: readonly (keyof PromptSections)[] = SECTION_ORDER;
+
 /**
  * Assemble the coordination block from sections in the deliberate order.
  * Empty/whitespace-only sections are skipped. Returns the composed block
@@ -77,4 +92,71 @@ export function assembleAgentPrompt(sections: PromptSections): string {
     .filter((s): s is string => !!s && s.trim().length > 0)
     .map((s) => s.trim())
     .join("\n\n");
+}
+
+/**
+ * Names of the sections currently gathered into the composed block, in order.
+ * Useful for preview/debug summaries.
+ */
+export function gatheredSectionNames(sections: PromptSections): string[] {
+  return SECTION_ORDER.filter((key) => {
+    const s = sections[key];
+    return !!s && s.trim().length > 0;
+  }).map((key) => PROMPT_SECTION_LABELS[key]);
+}
+
+/**
+ * Names of the sections that are currently empty/skipped, in order.
+ * Useful for preview/debug summaries (shows what is *not* injected).
+ */
+export function skippedSectionNames(sections: PromptSections): string[] {
+  return SECTION_ORDER.filter((key) => {
+    const s = sections[key];
+    return !s || s.trim().length === 0;
+  }).map((key) => PROMPT_SECTION_LABELS[key]);
+}
+
+function promptPreviewHeader(): string {
+  return "amux prompt preview (debug)\n" +
+    "==========================\n\n" +
+    "amux APPENDS a coordination block to Pi's base system prompt for the " +
+    "joined agent. Pi's base system prompt is NOT shown here — only amux " +
+    "sections are previewed.";
+}
+
+function promptSummary(sections: PromptSections): string {
+  const included = gatheredSectionNames(sections);
+  const skipped = skippedSectionNames(sections);
+  const total = SECTION_ORDER.length;
+  let summary = `Sections gathered (${included.length}/${total}): ` +
+    (included.length > 0 ? included.join(", ") : "(none)");
+  if (skipped.length > 0) {
+    summary += `\nSections empty/skipped (${skipped.length}): ${skipped.join(", ")}`;
+  }
+  return summary;
+}
+
+/** Format a non-polluting summary for `/amux prompt` default output. */
+export function formatPromptSummary(sections: PromptSections): string {
+  return `${promptPreviewHeader()}\n\n${promptSummary(sections)}\n\nUse /amux prompt <section> to inspect one section, or /amux prompt all to show the full amux-appended block. Sections: ${SECTION_ORDER.join(", ")}`;
+}
+
+/** Format one prompt section for focused inspection. */
+export function formatPromptSectionPreview(sections: PromptSections, section: keyof PromptSections): string {
+  const label = PROMPT_SECTION_LABELS[section];
+  const content = sections[section]?.trim();
+  return `${promptPreviewHeader()}\n\nSection: ${label} (${section})\n\n${content || "(empty — this section is not injected)"}`;
+}
+
+/**
+ * Format the full composed coordination block as a debug/preview for explicit
+ * `/amux prompt all`.
+ */
+export function formatPromptPreview(sections: PromptSections): string {
+  const assembled = assembleAgentPrompt(sections);
+  const body = assembled
+    ? assembled
+    : "(no sections gathered — the block is empty; nothing is appended to the base prompt)";
+
+  return `${promptPreviewHeader()}\n\n${promptSummary(sections)}\n\n---- composed block (appended to base prompt) ----\n\n${body}`;
 }

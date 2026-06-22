@@ -64,6 +64,11 @@ import {
 import {
   assembleAgentPrompt,
   COMMON_PRINCIPLES,
+  formatPromptPreview,
+  formatPromptSectionPreview,
+  formatPromptSummary,
+  PROMPT_SECTION_ORDER,
+  type PromptSections,
 } from "../core/prompt-assembly";
 import {
   ensureInbox,
@@ -412,24 +417,42 @@ export default function (pi: ExtensionAPI) {
 
     if (!myId) return;
 
-    const backlog = await readBacklog(mySession);
+    const sections = await gatherPromptSections();
+    const assembled = assembleAgentPrompt(sections);
+
+    if (!assembled) return;
+    return { systemPrompt: event.systemPrompt + "\n\n" + assembled };
+  });
+
+  /**
+   * Gather all amux coordination sections for the joined agent, in the
+   * deliberate order. This is the SINGLE gathering path used by both the
+   * before_agent_start hook (which appends the assembled block to Pi's base
+   * system prompt) and the `/amux prompt` debug/preview command -- so the
+   * injected prompt and the previewed prompt can never drift.
+   *
+   * Caller must ensure the agent has joined (mySession/myId/myName set).
+   */
+  async function gatherPromptSections(): Promise<PromptSections> {
+    const session = mySession!, id = myId!, name = myName!;
+    const backlog = await readBacklog(session);
 
     // ── Section 2: Ways of Working (extends common principles) ──
-    const wowContent = readWaysOfWorking(mySession);
+    const wowContent = readWaysOfWorking(session);
     const waysOfWorking = wowContent ? `## Ways of Working\n${wowContent}` : "";
 
     // ── Section 3: Project vision/context ──
-    const projectCtx = readProjectContext(mySession);
+    const projectCtx = readProjectContext(session);
     const projectContext = projectCtx ? `## Project Context\n${projectCtx}` : "";
 
     // ── Section 3: Role profile (role-specific only) ──
     const roleProfile = myRoleInstructions ? `## Your Role: ${myRoleName}\n${myRoleInstructions}` : "";
 
     // ── Section 4: Agent identity + workspace ──
-    let identity = `## Your Identity & Workspace\nYou are agent "${myName}" in session "${mySession}" (full address: ${myAddress()}).`;
+    let identity = `## Your Identity & Workspace\nYou are agent "${name}" in session "${session}" (full address: ${myAddress()}).`;
     if (myRoleName) identity += `\nRole: ${myRoleName}.`;
     {
-      const agent = await findById(mySession, myId);
+      const agent = await findById(session, id);
       if (agent?.workspace) {
         const branchResult = await pi.exec("git", ["-C", agent.workspace, "branch", "--show-current"], { timeout: 5000 });
         const branch = branchResult.stdout?.trim() || "unknown";
@@ -440,9 +463,9 @@ export default function (pi: ExtensionAPI) {
     // ── Section 5: Current work state (active/review/assigned, spec, recent comments) ──
     let workState = "";
     {
-      const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
-      const review = backlog.filter((t) => t.status === "review" && t.assigneeId === myId);
-      const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === myId);
+      const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === id);
+      const review = backlog.filter((t) => t.status === "review" && t.assigneeId === id);
+      const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === id);
 
       if (inProgress.length > 0) {
         const active = inProgress[0]!;
@@ -453,10 +476,10 @@ export default function (pi: ExtensionAPI) {
         }
         if (active.files?.length) workState += `\nFiles: ${active.files.join(", ")}`;
         if (active.specPath) {
-          const spec = readSpecPreview(mySession, active.specPath, 2000);
+          const spec = readSpecPreview(session, active.specPath, 2000);
           if (spec) workState += `\n\n${spec}`;
         }
-        const comments = readTaskComments(mySession, active.id);
+        const comments = readTaskComments(session, active.id);
         if (comments.length > 0) {
           const recent = comments.slice(-3);
           workState += `\nRecent activity:\n${recent.map((c) => `- ${formatTaskComment(c)}`).join("\n")}`;
@@ -477,18 +500,18 @@ export default function (pi: ExtensionAPI) {
     // ── Section 6: Team / journal context ──
     let teamContext = "";
     {
-      const registry = await readRegistry(mySession);
-      const projectAgents = Object.values(registry).filter((a) => a.id !== myId);
+      const registry = await readRegistry(session);
+      const projectAgents = Object.values(registry).filter((a) => a.id !== id);
       const allAgents = await readAllRegistries();
       const crossSessionAgents = allAgents.filter(
-        (a) => a.session !== mySession && isEffectivelyOnline(a)
+        (a) => a.session !== session && isEffectivelyOnline(a)
       );
 
       if (projectAgents.length > 0 || crossSessionAgents.length > 0) {
         teamContext += `## Team`;
         if (projectAgents.length > 0) {
           const list = projectAgents.map((a) => renderAgentPresence(a, backlog)).join("\n");
-          teamContext += `\n\nSame-session agents (address as "${mySession}/<name>" or just "<name>"):\n${list}`;
+          teamContext += `\n\nSame-session agents (address as "${session}/<name>" or just "<name>"):\n${list}`;
         }
         if (crossSessionAgents.length > 0) {
           const backlogBySession = new Map<string, BacklogItem[]>();
@@ -503,10 +526,10 @@ export default function (pi: ExtensionAPI) {
           }
           teamContext += `\nCross-session agents (must use full address "session/name"):\n${lines.join("\n")}`;
         }
-        teamContext += `\n\n### Addressing\n- Same-session agents: use just the name (e.g., "backend") or full address ("${mySession}/backend")\n- Cross-session agents: always use the full address ("othersession/agentname")`;
+        teamContext += `\n\n### Addressing\n- Same-session agents: use just the name (e.g., "backend") or full address ("${session}/backend")\n- Cross-session agents: always use the full address ("othersession/agentname")`;
       }
 
-      const recentJournal = getRecentEntries(mySession);
+      const recentJournal = getRecentEntries(session);
       if (recentJournal.length > 0) {
         const journalLines = recentJournal.map((e) => `- ${formatJournalEntry(e)}`);
         teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal\n${journalLines.join("\n")}`;
@@ -522,10 +545,9 @@ export default function (pi: ExtensionAPI) {
 ### Shared Artifacts
 Read and write shared documents using the standard read/write/edit tools.
 - Project (all agents): ${projectArtifactsDir()}
-- Private (you only): ${agentArtifactsDir(myId)}`;
+- Private (you only): ${agentArtifactsDir(id)}`;
 
-    // Compose the coordination block in deliberate order and APPEND to the base prompt
-    const assembled = assembleAgentPrompt({
+    return {
       commonPrinciples: COMMON_PRINCIPLES,
       waysOfWorking,
       projectContext,
@@ -534,11 +556,8 @@ Read and write shared documents using the standard read/write/edit tools.
       workState,
       teamContext,
       interfaceGuidance,
-    });
-
-    if (!assembled) return;
-    return { systemPrompt: event.systemPrompt + "\n\n" + assembled };
-  });
+    };
+  }
 
   // -- Tools ----------------------------------------------------
 
@@ -1649,11 +1668,13 @@ Read and write shared documents using the standard read/write/edit tools.
           return handleContext(parts.slice(1), ctx);
         case "wow":
           return handleWow(parts.slice(1), ctx);
+        case "prompt":
+          return handlePrompt(parts.slice(1), ctx);
         case "project":
           return handleProject(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux wow           Show/edit team Ways of Working (WOW.md)\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux wow           Show/edit team Ways of Working (WOW.md)\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
             "warning"
           );
       }
@@ -1697,7 +1718,7 @@ Read and write shared documents using the standard read/write/edit tools.
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context\n  /amux wow           Show/edit team Ways of Working\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context\n  /amux wow           Show/edit team Ways of Working\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
   }
@@ -2553,6 +2574,45 @@ Read and write shared documents using the standard read/write/edit tools.
   }
 
   // -- project/context commands --------------------------------
+
+  // -- prompt preview handler --
+
+  /**
+   * `/amux prompt` — debug/preview of the composed amux coordination block.
+   * Shows exactly what amux APPENDS to Pi's base system prompt for the joined
+   * agent (the base prompt itself is never shown). Uses the same gathering
+   * path (gatherPromptSections) as the before_agent_start hook, so the preview
+   * cannot drift from what is actually injected.
+   */
+  async function handlePrompt(args: string[], ctx: ExtensionContext): Promise<void> {
+    if (!mySession || !myId || !myName) {
+      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      return;
+    }
+    try {
+      const sections = await gatherPromptSections();
+      const target = args[0]?.trim();
+      if (!target) {
+        ctx.ui.notify(formatPromptSummary(sections), "info");
+        return;
+      }
+      if (target === "all") {
+        ctx.ui.notify(formatPromptPreview(sections), "info");
+        return;
+      }
+      const section = PROMPT_SECTION_ORDER.find((key) => key === target);
+      if (!section) {
+        ctx.ui.notify(
+          `Usage: /amux prompt [all|section]\n\nSections: ${PROMPT_SECTION_ORDER.join(", ")}`,
+          "warning"
+        );
+        return;
+      }
+      ctx.ui.notify(formatPromptSectionPreview(sections, section), "info");
+    } catch (err) {
+      ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
+    }
+  }
 
   async function handleProject(args: string[], ctx: ExtensionContext): Promise<void> {
     const sub = args[0] || "show";
