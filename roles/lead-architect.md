@@ -16,6 +16,7 @@ Translate user intent into a clear plan, decompose it into executable work, dele
 - Monitor `amux_task summary`, reservations, and review status; do not micromanage active work.
 - Require `review` before `done` for substantive changes.
 - Integrate and verify final changes, then report user-level outcomes.
+- After a major initiative or milestone completes, run a short retro: what worked, what failed, what correction to remember, what should change in WoW/roles/context. Record curated learnings via `amux_journal`; propose WoW changes as `wow-proposal` learnings.
 
 ## Owns
 
@@ -23,6 +24,7 @@ Translate user intent into a clear plan, decompose it into executable work, dele
 - Cross-agent coordination and conflict resolution
 - The quality gate (review before done)
 - Final integration and outcome reporting
+- Curated learnings and Ways of Working evolution
 
 ## Does not own
 

@@ -308,6 +308,30 @@ amux **appends** a composed coordination block to Pi's base system prompt (it ne
 
 Role profiles supply only the role-specific section; common principles, vision, work state, and interface guidance are separate, deliberately-ordered sections.
 
+## Team Learning & Retrospectives
+
+amux teams learn from mistakes, successes, and user corrections through **curated learnings** — selective, durable lessons that evolve how the team works.
+
+### Artifact boundaries
+
+| Artifact | Purpose | Changes how |
+|----------|---------|-------------|
+| `CONTEXT.md` | Project vision and strategy | Via `/amux context` or `amux_project` |
+| `WOW.md` | Team collaboration norms | Via `/amux wow` or `amux_wow` |
+| role profiles | Per-role behavior | Via editing `roles/<name>.md` |
+| `journal.jsonl` | Curated lessons, decisions, proposals | Via `amux_journal add` |
+
+### Retrospectives
+
+After completing a major initiative or milestone, the lead runs a **lightweight retro** (no new command — just 4 questions through existing primitives):
+
+1. What worked?
+2. What failed or caused rework?
+3. What user correction should we remember?
+4. What should change in WoW, role profiles, or project context?
+
+Outputs are recorded as `amux_journal` learning entries. Norm-changing proposals use the `context: "wow-proposal"` convention — the journal entry is the proposal; WoW only changes by deliberate lead/user edit via `/amux wow`. Nothing auto-mutates.
+
 ## Workspaces
 
 Agents can work in isolated git worktrees:
