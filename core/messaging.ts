@@ -29,6 +29,8 @@ import { randomUUID } from "node:crypto";
 import {
   sessionFile,
   appendJsonlSync,
+  readJson,
+  withJsonFile,
 } from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -47,6 +49,26 @@ export interface InboxMessage {
   commentId?: string; // related task comment ID, when applicable
   preview?: string; // short preview for notification UIs/logs
   requiresAttention?: boolean; // whether recipient should reassess state
+  responseRequired?: boolean; // sender expects a reply
+  inReplyTo?: string; // pending reply ID being answered
+}
+
+export interface PendingReply {
+  id: string;
+  messageId: string;
+  fromId: string;
+  fromName: string;
+  toSession: string;
+  toId: string;
+  toName: string;
+  createdAt: string;
+  messagePreview: string;
+  category?: string;
+  taskId?: string;
+  status: "pending" | "replied";
+  repliedAt?: string;
+  replyMessageId?: string;
+  replyFromName?: string;
 }
 
 /**
@@ -75,6 +97,10 @@ function inboxDir(session: string, agentId: string): string {
 
 function historyPath(session: string): string {
   return sessionFile(session, "messages.log");
+}
+
+function pendingRepliesPath(session: string): string {
+  return sessionFile(session, "pending-replies.json");
 }
 
 // ─── Inbox Operations ────────────────────────────────────────
@@ -172,6 +198,52 @@ export function confirmDelivered(session: string, agentId: string): void {
  */
 export function appendToHistory(session: string, message: InboxMessage): void {
   appendJsonlSync(historyPath(session), message);
+}
+
+// ─── Pending Replies ─────────────────────────────────────────
+
+export function messagePreview(text: string, maxLength = 160): string {
+  const compact = text.replace(/[\r\n\t]+/g, " ").replace(/ +/g, " ").trim();
+  return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 1))}…` : compact;
+}
+
+export async function createPendingReply(
+  session: string,
+  entry: Omit<PendingReply, "status">
+): Promise<PendingReply> {
+  const pending: PendingReply = { ...entry, status: "pending" };
+  await withJsonFile<PendingReply[]>(pendingRepliesPath(session), [], (items) => {
+    const existing = items.find((item) => item.id === pending.id);
+    if (!existing) items.push(pending);
+    return items;
+  });
+  return pending;
+}
+
+export async function markPendingReplyReplied(
+  session: string,
+  pendingId: string,
+  replyMessageId: string,
+  replyFromName: string,
+): Promise<PendingReply | null> {
+  let found: PendingReply | null = null;
+  await withJsonFile<PendingReply[]>(pendingRepliesPath(session), [], (items) => {
+    const item = items.find((p) => p.id === pendingId);
+    if (item) {
+      item.status = "replied";
+      item.repliedAt = new Date().toISOString();
+      item.replyMessageId = replyMessageId;
+      item.replyFromName = replyFromName;
+      found = item;
+    }
+    return items;
+  });
+  return found;
+}
+
+export async function readPendingReplies(session: string, agentId?: string): Promise<PendingReply[]> {
+  const items = await readJson<PendingReply[]>(pendingRepliesPath(session), []);
+  return agentId ? items.filter((item) => item.fromId === agentId && item.status === "pending") : items;
 }
 
 // ─── Watcher ─────────────────────────────────────────────────

@@ -80,6 +80,10 @@ import {
   watchInbox,
   newMessageId,
   formatMessageAge,
+  createPendingReply,
+  markPendingReplyReplied,
+  readPendingReplies,
+  messagePreview,
   type InboxMessage,
 } from "../core/messaging";
 import {
@@ -176,9 +180,18 @@ export default function (pi: ExtensionAPI) {
     const age = formatMessageAge(msg.timestamp);
     const catStr = msg.category ? ` · ${msg.category}` : "";
     const taskStr = msg.taskId ? ` · ${msg.taskId}` : "";
+    const responseStr = msg.responseRequired ? " · response requested" : "";
     return msg.fromRole
-      ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr} · sent ${age}]`
-      : `[amux:${msg.fromSession}/${msg.fromName}${catStr}${taskStr} · sent ${age}]`;
+      ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr}${responseStr} · sent ${age}]`
+      : `[amux:${msg.fromSession}/${msg.fromName}${catStr}${taskStr}${responseStr} · sent ${age}]`;
+  }
+
+  function formatInboxDelivery(msg: InboxMessage): string {
+    let text = `${inboxMessagePrefix(msg)} ${msg.message}`;
+    if (msg.responseRequired) {
+      text += `\n\nResponse requested. Reply with amux_send to ${formatAddress(msg.fromSession, msg.fromName)} and include inReplyTo: "${msg.id}".`;
+    }
+    return text;
   }
 
   /** Check if a role name matches a built-in role template. */
@@ -220,7 +233,7 @@ export default function (pi: ExtensionAPI) {
       appendToHistory(mySession!, msg);
       markAsDelivered(mySession!, myId!, filename);
 
-      pi.sendUserMessage(`${inboxMessagePrefix(msg)} ${msg.message}`, {
+      pi.sendUserMessage(formatInboxDelivery(msg), {
         deliverAs: "followUp",
       });
     });
@@ -234,7 +247,7 @@ export default function (pi: ExtensionAPI) {
         markAsDelivered(mySession, myId, filename);
       }
 
-      pi.sendUserMessage(`${inboxMessagePrefix(msg)} ${msg.message}`, {
+      pi.sendUserMessage(formatInboxDelivery(msg), {
         deliverAs: "followUp",
       });
     }
@@ -499,6 +512,15 @@ export default function (pi: ExtensionAPI) {
       if (assigned.length > 0) {
         const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
         workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
+      }
+
+      const pendingReplies = await readPendingReplies(session, id);
+      if (pendingReplies.length > 0) {
+        const lines = pendingReplies.slice(0, 5).map((p) => {
+          const task = p.taskId ? ` ${p.taskId}` : "";
+          return `- ${p.id}${task} to ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
+        });
+        workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nThese direct messages requested a response. Follow up or mark them answered by replying with amux_send inReplyTo.`;
       }
     }
 
@@ -821,6 +843,7 @@ Read and write shared documents using the standard read/write/edit tools.
       "For task-related discussion, use amux_task comment instead  -- comments stay on the task.",
       'For cross-session agents, use the full address in amux_send: "session/name".',
       "After using amux_send, do not wait  -- continue with your own work unless you need their response first.",
+      "Set responseRequired when you need a reply; brainstorm messages default to responseRequired unless explicitly set false. Reply to response-required messages with inReplyTo.",
     ],
     parameters: Type.Object({
       to: Type.String({ description: '"name" for same session, or "session/name" for cross-session' }),
@@ -831,6 +854,8 @@ Read and write shared documents using the standard read/write/edit tools.
         })
       ),
       taskId: Type.Optional(Type.String({ description: "Optional related task ID for context/staleness assessment" })),
+      responseRequired: Type.Optional(Type.Boolean({ description: "Whether a reply is expected. Defaults true for brainstorm, false otherwise." })),
+      inReplyTo: Type.Optional(Type.String({ description: "Pending reply/message ID this message answers." })),
     }),
 
     async execute(_id, params) {
@@ -848,6 +873,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
       if (target.id === myId) throw new Error("Cannot send a message to yourself.");
 
+      const responseRequired = params.responseRequired ?? params.category === "brainstorm";
       const msg: InboxMessage = {
         id: newMessageId(),
         from: myId,
@@ -858,14 +884,40 @@ Read and write shared documents using the standard read/write/edit tools.
         message: params.message,
         category: params.category,
         taskId: params.taskId,
+        responseRequired,
+        inReplyTo: params.inReplyTo,
       };
 
       sendToInbox(target.session, target.id, msg);
+      let pending = null;
+      if (responseRequired) {
+        pending = await createPendingReply(mySession, {
+          id: msg.id,
+          messageId: msg.id,
+          fromId: myId,
+          fromName: myName,
+          toSession: target.session,
+          toId: target.id,
+          toName: target.name,
+          createdAt: msg.timestamp,
+          messagePreview: messagePreview(params.message),
+          category: params.category,
+          taskId: params.taskId,
+        });
+      }
+      let replied = null;
+      if (params.inReplyTo) {
+        replied = await markPendingReplyReplied(target.session, params.inReplyTo, msg.id, myName)
+          || await markPendingReplyReplied(mySession, params.inReplyTo, msg.id, myName);
+      }
 
       const targetAddr = formatAddress(target.session, target.name);
+      let text = `Message sent to ${targetAddr} (${target.roleName || target.role}).`;
+      if (pending) text += ` Response requested; pending reply id: ${pending.id}.`;
+      if (replied) text += ` Marked pending reply ${replied.id} as replied.`;
       return {
-        content: [{ type: "text", text: `Message sent to ${targetAddr} (${target.roleName || target.role}).` }],
-        details: { to: targetAddr, targetId: target.id },
+        content: [{ type: "text", text }],
+        details: { to: targetAddr, targetId: target.id, pendingReply: pending, repliedTo: replied },
       };
     },
   });

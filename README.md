@@ -179,6 +179,8 @@ amux_task({ action: "archive" })   # Move done items out of the active backlog
 
 Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Task comments are durable and notify relevant subscribers by default (assignee, creator, previous commenters, and `@AgentName` mentions); pass `notify: false` or `silent: true` for a quiet note. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Use `archive` to move done items that are no longer needed for ongoing implementation out of the active backlog. Simple workflows can still mark work done directly. Use `amux_send` only for exceptional non-task communication; delivered messages show intent and age so stale context is visible.
 
+For direct messages that need an answer, set `responseRequired: true`; `brainstorm` messages default to requiring a response. Pending replies are shown in the sender's prompt until the recipient replies with `inReplyTo`.
+
 For token-efficient review handoff, include a compact free-form summary when marking work ready for review:
 
 ```bash
@@ -233,7 +235,7 @@ Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop
 |------|---------|---------|
 | `amux_role` | add, list, remove, templates, apply-template, show, path | Manage roles and apply team templates |
 | `amux_list` | -- | List online/offline agents |
-| `amux_send` | -- | Send message to an agent (exceptional, non-task communication) |
+| `amux_send` | -- | Send message to an agent (exceptional, non-task communication; supports response-required tracking) |
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_project` | show, set, append, clear, path | Manage project vision/context |

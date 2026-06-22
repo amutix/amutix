@@ -80,6 +80,10 @@ import {
   appendToHistory,
   newMessageId,
   formatMessageAge,
+  createPendingReply,
+  markPendingReplyReplied,
+  readPendingReplies,
+  messagePreview,
   type InboxMessage,
 } from "../core/messaging.ts";
 
@@ -319,6 +323,28 @@ describe("Messaging (crash-safe)", () => {
   it("confirms and cleans up delivered", () => {
     confirmDelivered(session, agentId);
     assert.equal(getRecoverableMessages(session, agentId).length, 0);
+  });
+
+  it("tracks pending replies and marks them replied", async () => {
+    const pending = await createPendingReply(session, {
+      id: "msg-1",
+      messageId: "msg-1",
+      fromId: "sender",
+      fromName: "Sender",
+      toSession: session,
+      toId: agentId,
+      toName: "Receiver",
+      createdAt: new Date().toISOString(),
+      messagePreview: messagePreview("Please brainstorm\noptions"),
+      category: "brainstorm",
+    });
+    assert.equal(pending.status, "pending");
+    assert.equal((await readPendingReplies(session, "sender")).length, 1);
+    assert.equal((await readPendingReplies(session, "sender"))[0]!.messagePreview, "Please brainstorm options");
+
+    const replied = await markPendingReplyReplied(session, "msg-1", "reply-1", "Receiver");
+    assert.equal(replied!.status, "replied");
+    assert.equal((await readPendingReplies(session, "sender")).length, 0);
   });
 });
 
