@@ -1,36 +1,75 @@
 # amux -- Agent Multiplexer
 
-Multi-agent coordination for AI coding agents. Agents discover each other, communicate via file-based inboxes, share documents, manage tasks, and build shared knowledge.
+amux is a local coordination layer for AI coding agents.
+
+It does not try to be another agent framework, graph runner, or hosted swarm. It gives the agents you already run the shared state they need to behave like a software team: project vision, roles, task ownership, task-scoped discussion, file reservations, review handoffs, journals, and prompt context derived from current state.
 
 Framework-agnostic core with a [Pi](https://github.com/earendil-works/pi) extension included.
 
-## Vision
+## Why amux?
 
-amux turns isolated AI coding agents into an aligned, communicating team that can deliver outcomes no single agent can reliably achieve alone.
+There are many multi-agent frameworks for defining agents, routing messages, and running workflows. amux focuses on the part those systems often leave underspecified: **coordination while real coding agents work in real repositories**.
 
-The project optimizes for efficient communication, high alignment, and synergistic collaboration: task-scoped discussion instead of scattered messages, state-derived context instead of stale instructions, and structured work coordination so specialized agents can plan, build, review, and harden software together.
+Multi-agent coding fails less because agents cannot talk and more because they lose alignment:
 
-See [VISION.md](./VISION.md) for the full vision, principles, and rationale.
+- stale task instructions arrive after state changed
+- two agents edit the same files
+- decisions hide in chat history
+- reviewers lack a focused handoff
+- users must keep re-explaining the plan
+- no one can tell who owns what right now
+
+amux makes that coordination cheap and durable. State is file-backed, local, inspectable, and injected into each agent's prompt as compact current context. Agents coordinate through backlog items, comments, reservations, journals, artifacts, roles, and reviews — not through fragile message chains.
+
+## What amux is / is not
+
+**amux is:**
+
+- a shared coordination substrate for multiple coding agents
+- local-first and file-backed; no server or database required
+- host-runtime agnostic at the core, with thin adapters such as the Pi extension
+- optimized for high-level user delegation: user → lead/architect → developers/reviewers
+- built around simple primitives that compose
+
+**amux is not:**
+
+- a replacement LLM runtime
+- a workflow DAG engine
+- a hosted agent platform
+- a magic auto-planner that hides decisions
+- a chat room for agents
+
+## Core surfaces
+
+- **Project context**: durable vision and constraints injected into prompts
+- **Ways of Working**: project-specific team norms
+- **Roles and team templates**: lead, developer, reviewer, or custom profiles
+- **Backlog**: initiatives, milestones, tasks, bugs, chores, specs, dependencies
+- **Task comments**: discussion stays attached to the work
+- **Reservations**: advisory file/path ownership to avoid collisions
+- **Journal**: durable decisions, learnings, and progress
+- **Prompt assembly**: compact state-derived context for each agent
 
 ## Architecture
 
 ```
-core/                          Pi-independent, reusable
+core/                          Host-runtime independent coordination library
   storage.ts                   Shared storage layer (paths, JSON/JSONL I/O)
   registry.ts                  Agent identity (UUID, online/offline)
-  messaging.ts                 Crash-safe file-based inboxes
-  backlog.ts                   Ordered backlog queue (BacklogItem)
+  messaging.ts                 Crash-safe file-backed inboxes
+  backlog.ts                   Structured backlog items and specs
   task-comments.ts             Task-scoped comments and activity
   reservations.ts              File/directory reservations
   journal.ts                   Decision & learning log
-  index.ts                     Public API + built-in roles
+  roles.ts                     Project-local roles and team templates
+  prompt-assembly.ts           Deliberate coordination prompt composition
+  renderers.ts                 Shared progress/task/team renderers
 
-pi/                            Pi extension (uses core)
-  index.ts                     Tools, commands, prompt injection
-
-cli/                           Command-line interface (uses core)
-  index.ts                     CLI entry point
+pi/                            Pi adapter: tools, commands, prompt injection
+cli/                           Read-only CLI over shared core services
 ```
+
+See [VISION.md](./VISION.md) for the full vision, principles, and rationale.
 
 ## Install
 
