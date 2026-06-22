@@ -1,53 +1,26 @@
 # amux -- Agent Multiplexer
 
-amux is a local coordination layer for AI coding agents.
+amux is a local, file-backed coordination layer for AI coding agents.
 
-It does not try to be another agent framework, graph runner, or hosted swarm. It gives the agents you already run the shared state they need to behave like a software team: project vision, roles, task ownership, task-scoped discussion, file reservations, review handoffs, journals, and prompt context derived from current state.
+It provides shared project state for agents working in the same repository: who the agents are, what work exists, who owns it, what is blocked, which files are reserved, and what context should be injected into each agent's prompt.
 
-Framework-agnostic core with a [Pi](https://github.com/earendil-works/pi) extension included.
+The core is framework-agnostic. This package includes a [Pi](https://github.com/earendil-works/pi) extension and a read-only CLI.
 
-## Why amux?
+## Scope
 
-There are many multi-agent frameworks for defining agents, routing messages, and running workflows. amux focuses on the part those systems often leave underspecified: **coordination while real coding agents work in real repositories**.
+Use amux when you already have multiple coding agents or sessions and need a lightweight way to coordinate them.
 
-Multi-agent coding fails less because agents cannot talk and more because they lose alignment:
-
-- stale task instructions arrive after state changed
-- two agents edit the same files
-- decisions hide in chat history
-- reviewers lack a focused handoff
-- users must keep re-explaining the plan
-- no one can tell who owns what right now
-
-amux makes that coordination cheap and durable. State is file-backed, local, inspectable, and injected into each agent's prompt as compact current context. Agents coordinate through backlog items, comments, reservations, journals, artifacts, roles, and reviews — not through fragile message chains.
-
-## What amux is / is not
-
-**amux is:**
-
-- a shared coordination substrate for multiple coding agents
-- local-first and file-backed; no server or database required
-- host-runtime agnostic at the core, with thin adapters such as the Pi extension
-- optimized for high-level user delegation: user → lead/architect → developers/reviewers
-- built around simple primitives that compose
-
-**amux is not:**
-
-- a replacement LLM runtime
-- a workflow DAG engine
-- a hosted agent platform
-- a magic auto-planner that hides decisions
-- a chat room for agents
+It is not an LLM runtime, hosted agent platform, workflow DAG engine, or automatic planner.
 
 ## Core surfaces
 
-- **Project context**: durable vision and constraints injected into prompts
+- **Project context**: shared goal, constraints, and direction
 - **Ways of Working**: project-specific team norms
-- **Roles and team templates**: lead, developer, reviewer, or custom profiles
+- **Roles and team templates**: reusable agent responsibilities
 - **Backlog**: initiatives, milestones, tasks, bugs, chores, specs, dependencies
-- **Task comments**: discussion stays attached to the work
-- **Reservations**: advisory file/path ownership to avoid collisions
-- **Journal**: durable decisions, learnings, and progress
+- **Task comments**: discussion attached to the work
+- **Reservations**: advisory file/path ownership
+- **Journal**: decisions, learnings, and progress
 - **Prompt assembly**: compact state-derived context for each agent
 
 ## Architecture
