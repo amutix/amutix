@@ -2903,21 +2903,25 @@ Read and write shared documents using the standard read/write/edit tools.
     try {
       const agents = await getOnlineAgents(mySession);
       const theme = ctx.ui.theme;
-      const sessionLabel = theme.fg("dim", `[${mySession}] `);
+      const me = agents.find((a) => a.id === myId);
 
-      if (agents.length === 0) {
-        ctx.ui.setStatus("amux", sessionLabel + theme.fg("dim", "no agents"));
+      if (!me) {
+        ctx.ui.setStatus("amux", theme.fg("accent", `amux: ${myName || "unknown"}@${mySession}`) + theme.fg("dim", " (offline)"));
         return;
       }
 
-      const parts = agents.map((a) => {
-        const icon = a.id === myId ? "◆" : "○";
-        const color: "accent" | "success" = a.id === myId ? "accent" : "success";
-        const label = [a.roleName, a.name].filter(Boolean).join(":");
-        return theme.fg(color, `${icon} ${label}`);
-      });
+      // The host footer is a single terminal-width line, so put the active
+      // agent first and keep the team summary compact. If the line is clipped,
+      // the important identity (agent + session) remains visible.
+      const active = theme.fg("accent", `◆ ${me.name}@${mySession}`);
+      const role = me.roleName ? theme.fg("dim", ` (${me.roleName})`) : "";
+      const others = agents.filter((a) => a.id !== myId);
+      const onlineSummary = theme.fg("dim", ` • ${agents.length} online`);
+      const otherSummary = others.length > 0
+        ? theme.fg("dim", `: ${others.map((a) => a.name).join(", ")}`)
+        : "";
 
-      ctx.ui.setStatus("amux", sessionLabel + parts.join(theme.fg("dim", " | ")));
+      ctx.ui.setStatus("amux", active + role + onlineSummary + otherSummary);
     } catch {
       // Ignore widget errors
     }
