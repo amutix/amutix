@@ -21,7 +21,7 @@ It is not an LLM runtime, hosted agent platform, workflow DAG engine, or automat
 - **Task comments**: discussion attached to the work
 - **Reservations**: advisory file/path ownership
 - **Journal**: decisions, learnings, and progress
-- **Prompt assembly**: compact state-derived context for each agent
+- **Prompt assembly**: compact state-derived context for each agent, including a small dynamic codebase snapshot
 
 ## Architecture
 
@@ -306,11 +306,12 @@ amux **appends** a composed coordination block to the host agent runtime's base 
 2. Project vision/context
 3. Role profile (role-specific only)
 4. Agent identity + workspace
-5. Current work state (active/assigned/review items, spec preview, recent comments)
-6. Team/project snapshot/reservation context
-7. Interface/tool guidance and shared artifact paths
+5. Codebase snapshot (repo, branch/dirty state, package scripts, entry points, top directories)
+6. Current work state (active/assigned/review items, spec preview, recent comments)
+7. Team/project snapshot/reservation context
+8. Interface/tool guidance and shared artifact paths
 
-Role profiles supply only the role-specific section; common principles, vision, work state, and interface guidance are separate, deliberately-ordered sections.
+Role profiles supply only the role-specific section; common principles, vision, codebase snapshot, work state, and interface guidance are separate, deliberately-ordered sections.
 
 ## Team Learning & Retrospectives
 

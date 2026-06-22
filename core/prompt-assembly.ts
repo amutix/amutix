@@ -45,11 +45,13 @@ export interface PromptSections {
   roleProfile?: string;
   /** 5. Agent identity + workspace. */
   identity?: string;
-  /** 6. Current work state: active/assigned/review items, spec, recent comments, journal. */
+  /** 6. Compact dynamic repo orientation. */
+  codebaseContext?: string;
+  /** 7. Current work state: active/assigned/review items, spec, recent comments, journal. */
   workState?: string;
-  /** 7. Team/backlog/review/reservation context (agent roster, addressing). */
+  /** 8. Team/backlog/review/reservation context (agent roster, addressing). */
   teamContext?: string;
-  /** 8. Interface/tool guidance and shared artifact paths. */
+  /** 9. Interface/tool guidance and shared artifact paths. */
   interfaceGuidance?: string;
 }
 
@@ -60,6 +62,7 @@ const SECTION_ORDER: (keyof PromptSections)[] = [
   "projectContext",
   "roleProfile",
   "identity",
+  "codebaseContext",
   "workState",
   "teamContext",
   "interfaceGuidance",
@@ -72,6 +75,7 @@ export const PROMPT_SECTION_LABELS: Record<keyof PromptSections, string> = {
   projectContext: "Project context",
   roleProfile: "Role profile",
   identity: "Identity & workspace",
+  codebaseContext: "Codebase snapshot",
   workState: "Work state",
   teamContext: "Team context",
   interfaceGuidance: "Interface guidance",
