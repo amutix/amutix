@@ -70,6 +70,28 @@ import {
   skippedSectionNames,
   PROMPT_SECTION_ORDER,
 } from "../core/prompt-assembly.ts";
+import {
+  startDiscussion,
+  postToDiscussion,
+  closeDiscussion,
+  readDiscussion,
+  readAllDiscussions,
+  listDiscussions,
+  openDiscussionSummaries,
+  summarizeDiscussion,
+  renderDiscussion,
+  renderDiscussionList,
+  replayEvents,
+  nextDiscussionId,
+  validateCloseSummary,
+  validatePostContent,
+  validateTopic,
+  type ChannelEvent,
+  type ChannelParticipant,
+  type Discussion,
+  resolveDiscussionParticipants,
+  normalizeAudience,
+} from "../core/discussions.ts";
 
 import {
   ensureInbox,
@@ -2663,5 +2685,402 @@ describe("Ways of Working (WOW.md)", () => {
     assert.ok(!out.includes("Ways of Working"));
     assert.ok(out.includes("COMMON"));
     assert.ok(out.includes("CTX"));
+  });
+});
+
+// -- Test helpers for discussions --
+
+function participants(...names: Array<[string, string, string]>): ChannelParticipant[] {
+  // [id, name, session]
+  return names.map(([id, name, session]) => ({ id, name, session }));
+}
+
+describe("Discussions: state replay and lifecycle", () => {
+  const session = testSession("discussions");
+  const author = { id: "lead-1", name: "Lead", session };
+  const parts = participants(
+    ["lead-1", "Lead", session],
+    ["dev-1", "Developer", session],
+    ["dev-2", "Developer2", session],
+  );
+
+  after(() => cleanupSession(session));
+
+  it("startDiscussion allocates DISC-01 and seeds an open channel via a created event", () => {
+    const id = startDiscussion(session, {
+      topic: "v1.2 retro",
+      kind: "retro",
+      participants: parts,
+      author,
+    });
+    assert.equal(id, "DISC-01");
+    const d = readDiscussion(session, id)!;
+    assert.ok(d);
+    assert.equal(d.id, "DISC-01");
+    assert.equal(d.topic, "v1.2 retro");
+    assert.equal(d.kind, "retro");
+    assert.equal(d.status, "open");
+    assert.equal(d.createdBy, "Lead");
+    assert.equal(d.participants.length, 3);
+    assert.equal(d.posts.length, 0);
+  });
+
+  it("postToDiscussion appends a post and projects it via replay", () => {
+    const updated = postToDiscussion(session, "DISC-01", {
+      content: "What worked: state-driven workflow.",
+      author: { ...author, id: "dev-1", name: "Developer" },
+    })!;
+    assert.ok(updated);
+    assert.equal(updated.posts.length, 1);
+    assert.equal(updated.posts[0]!.content, "What worked: state-driven workflow.");
+    assert.equal(updated.posts[0]!.authorName, "Developer");
+    assert.equal(updated.status, "open");
+  });
+
+  it("postToDiscussion returns null for an unknown discussion id", () => {
+    const res = postToDiscussion(session, "DISC-99", { content: "noop", author });
+    assert.equal(res, null);
+  });
+
+  it("closeDiscussion requires a non-empty summary (validation)", () => {
+    assert.throws(
+      () => closeDiscussion(session, "DISC-01", { summary: "   ", author }),
+      /summary is required/i,
+    );
+  });
+
+  it("closeDiscussion sets status closed, stores summary, and embeds final snapshot", () => {
+    const closed = closeDiscussion(session, "DISC-01", {
+      summary: "Adopt tool-cwd WoW rule and branch-sync guard.",
+      author,
+    })!;
+    assert.ok(closed);
+    assert.equal(closed.status, "closed");
+    assert.equal(closed.summary, "Adopt tool-cwd WoW rule and branch-sync guard.");
+    assert.equal(closed.closedBy, "Lead");
+    assert.ok(closed.closedAt);
+    // The post from before close is retained.
+    assert.equal(closed.posts.length, 1);
+  });
+
+  it("postToDiscussion rejects posts to an already-closed discussion", () => {
+    assert.throws(
+      () => postToDiscussion(session, "DISC-01", { content: "late", author }),
+      /closed and cannot receive new posts/i,
+    );
+  });
+
+  it("closeDiscussion rejects double-close", () => {
+    assert.throws(
+      () => closeDiscussion(session, "DISC-01", { summary: "again", author }),
+      /already closed/i,
+    );
+  });
+});
+
+describe("Discussions: ID allocation without reuse", () => {
+  const session = testSession("disc-ids");
+  const author = { id: "lead-1", name: "Lead", session };
+  const parts = participants(["lead-1", "Lead", session]);
+
+  after(() => cleanupSession(session));
+
+  it("allocates DISC-01, DISC-02 sequentially and does not reuse after close", () => {
+    const id1 = startDiscussion(session, { topic: "first", participants: parts, author });
+    assert.equal(id1, "DISC-01");
+    const id2 = startDiscussion(session, { topic: "second", participants: parts, author });
+    assert.equal(id2, "DISC-02");
+    closeDiscussion(session, id1, { summary: "done", author });
+
+    // Even though DISC-01 is closed, the next id is DISC-03 (no reuse).
+    const id3 = startDiscussion(session, { topic: "third", participants: parts, author });
+    assert.equal(id3, "DISC-03");
+
+    // nextDiscussionId agrees.
+    assert.equal(nextDiscussionId(session), "DISC-04");
+  });
+
+  it("nextDiscussionId starts at DISC-01 for a session with no discussions", () => {
+    const empty = testSession("disc-empty");
+    try {
+      assert.equal(nextDiscussionId(empty), "DISC-01");
+    } finally {
+      cleanupSession(empty);
+    }
+  });
+});
+
+describe("Discussions: list and open summary", () => {
+  const session = testSession("disc-list");
+  const author = { id: "lead-1", name: "Lead", session };
+  const parts = participants(
+    ["lead-1", "Lead", session],
+    ["dev-1", "Developer", session],
+    ["dev-2", "Developer2", session],
+  );
+
+  after(() => cleanupSession(session));
+
+  it("open summaries include open discussions and exclude closed ones", () => {
+    const openId = startDiscussion(session, { topic: "open thread", kind: "brainstorm", participants: parts, author });
+    const closedId = startDiscussion(session, { topic: "done thread", participants: parts, author });
+    postToDiscussion(session, closedId, { content: "a post", author });
+    postToDiscussion(session, closedId, { content: "another", author });
+    postToDiscussion(session, openId, { content: "x", author });
+    closeDiscussion(session, closedId, { summary: "shipped", author });
+
+    const open = openDiscussionSummaries(session);
+    assert.equal(open.filter((d) => d.status === "open").length, open.length);
+    const openIds = open.map((d) => d.id);
+    assert.ok(openIds.includes(openId));
+    assert.equal(openIds.includes(closedId), false);
+
+    // Summaries carry metadata only (no post bodies).
+    const openSum = open.find((d) => d.id === openId)!;
+    assert.equal(openSum.postCount, 1);
+    assert.ok(openSum.participantNames.includes("Developer2"));
+  });
+
+  it("listDiscussions includes both open and closed, newest activity first", () => {
+    const all = listDiscussions(session);
+    assert.ok(all.length >= 2);
+    // Sorted by lastActivityAt descending.
+    for (let i = 1; i < all.length; i++) {
+      assert.ok(all[i - 1]!.lastActivityAt.localeCompare(all[i]!.lastActivityAt) >= 0);
+    }
+    const ids = all.map((d) => d.id);
+    assert.ok(ids.includes("DISC-01") && ids.includes("DISC-02"));
+  });
+
+  it("summarizeDiscussion does not leak post bodies", () => {
+    const d = readDiscussion(session, "DISC-01")!;
+    const s = summarizeDiscussion(d);
+    const serialized = JSON.stringify(s);
+    // The literal post body should not appear in the summary payload.
+    assert.equal(serialized.includes("x"), false);
+  });
+});
+
+describe("Discussions: rendering", () => {
+  const session = testSession("disc-render");
+  const author = { id: "lead-1", name: "Lead", session };
+  const parts = participants(["lead-1", "Lead", session], ["dev-1", "Developer", session]);
+
+  after(() => cleanupSession(session));
+
+  it("renderDiscussion shows metadata, status, summary, and posts", () => {
+    const id = startDiscussion(session, { topic: "design jam", kind: "design", participants: parts, author });
+    postToDiscussion(session, id, { content: "Option A: composition-first.", author: { ...author, id: "dev-1", name: "Developer" } });
+    closeDiscussion(session, id, { summary: "Go with thread-detached model.", author });
+    const out = renderDiscussion(readDiscussion(session, id)!);
+    assert.ok(out.includes("DISC-01 [closed] design jam"));
+    assert.ok(out.includes("Participants: Lead, Developer"));
+    assert.ok(out.includes("Summary: Go with thread-detached model."));
+    assert.ok(out.includes("Developer: Option A: composition-first."));
+  });
+
+  it("renderDiscussionList renders one compact line per discussion", () => {
+    const start = startDiscussion(session, { topic: "another", participants: parts, author });
+    const out = renderDiscussionList(listDiscussions(session));
+    assert.ok(out.includes("DISC-01 [closed]"));
+    assert.ok(out.includes(`${start} [open]`));
+    assert.ok(out.includes("design:"));
+  });
+
+  it("renderDiscussionList handles empty input", () => {
+    assert.equal(renderDiscussionList([]), "(no discussions)");
+  });
+});
+
+describe("Discussions: pure replay and validation (no filesystem)", () => {
+  it("replayEvents reconstructs state from an event log", () => {
+    const events: ChannelEvent[] = [
+      {
+        eventId: "e1", type: "created", timestamp: "2026-06-23T00:00:00.000Z",
+        authorId: "a1", authorName: "Lead", authorSession: "s",
+        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "open", participants: [] },
+      },
+      {
+        eventId: "e2", type: "posted", timestamp: "2026-06-23T00:01:00.000Z",
+        authorId: "a2", authorName: "Dev", authorSession: "s", content: "hello",
+      },
+      {
+        eventId: "e3", type: "closed", timestamp: "2026-06-23T00:02:00.000Z",
+        authorId: "a1", authorName: "Lead", authorSession: "s", summary: "done",
+        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "closed", participants: [] },
+      },
+    ];
+    const d = replayEvents("DISC-01", events)!;
+    assert.ok(d);
+    assert.equal(d.status, "closed");
+    assert.equal(d.posts.length, 1);
+    assert.equal(d.posts[0]!.content, "hello");
+    assert.equal(d.summary, "done");
+  });
+
+  it("replayEvents returns null for empty or missing-created logs", () => {
+    assert.equal(replayEvents("DISC-99", []), null);
+    const noCreated: ChannelEvent[] = [
+      { eventId: "e1", type: "posted", timestamp: "t", authorId: "a", authorName: "n", authorSession: "s", content: "x" },
+    ];
+    assert.equal(replayEvents("DISC-01", noCreated), null);
+  });
+
+  it("validators reject empty/oversized inputs and accept valid ones", () => {
+    assert.ok(validateCloseSummary(""));
+    assert.ok(validateCloseSummary("   "));
+    assert.ok(validateCloseSummary(undefined));
+    assert.equal(validateCloseSummary("Shipped the WoW rule."), null);
+
+    assert.ok(validatePostContent(""));
+    assert.ok(validatePostContent(undefined));
+    assert.equal(validatePostContent("a real post"), null);
+
+    assert.ok(validateTopic(""));
+    assert.ok(validateTopic(undefined));
+    assert.equal(validateTopic("valid topic"), null);
+  });
+});
+
+describe("Discussions: initial content on start", () => {
+  const session = testSession("disc-seed");
+  const author = { id: "lead-1", name: "Lead", session };
+  const parts = participants(["lead-1", "Lead", session]);
+
+  after(() => cleanupSession(session));
+
+  it("startDiscussion with content appends the agenda as the first post", () => {
+    const id = startDiscussion(session, {
+      topic: "sync",
+      participants: parts,
+      author,
+      content: "Agenda: 1) caching 2) release",
+    });
+    const d = readDiscussion(session, id)!;
+    assert.equal(d.posts.length, 1);
+    assert.equal(d.posts[0]!.content, "Agenda: 1) caching 2) release");
+    assert.equal(d.posts[0]!.authorName, "Lead");
+  });
+
+  it("readAllDiscussions returns empty for a fresh session", () => {
+    const fresh = testSession("disc-fresh");
+    try {
+      assert.deepEqual(readAllDiscussions(fresh), []);
+      assert.deepEqual(listDiscussions(fresh), []);
+      assert.deepEqual(openDiscussionSummaries(fresh), []);
+    } finally {
+      cleanupSession(fresh);
+    }
+  });
+});
+
+describe("Discussions: audience mode and participant resolution", () => {
+  const session = testSession("disc-audience");
+  const author = { id: "lead-1", name: "Lead", session };
+  // Registry-style list of all same-session agents.
+  const allAgents: ChannelParticipant[] = [
+    { id: "lead-1", name: "Lead", session },
+    { id: "dev-1", name: "Developer", session },
+    { id: "dev-2", name: "Developer2", session },
+  ];
+
+  after(() => cleanupSession(session));
+
+  it("resolveDiscussionParticipants(all) returns every agent plus creator, de-duped", () => {
+    const resolved = resolveDiscussionParticipants("all", author, allAgents);
+    const ids = resolved.map((p) => p.id).sort();
+    assert.deepEqual(ids, ["dev-1", "dev-2", "lead-1"]);
+  });
+
+  it("resolveDiscussionParticipants(agents) returns only explicit agents plus creator", () => {
+    const resolved = resolveDiscussionParticipants(
+      "agents",
+      author,
+      allAgents, // ignored in agents mode
+      [{ id: "dev-2", name: "Developer2", session }],
+    );
+    const ids = resolved.map((p) => p.id).sort();
+    assert.deepEqual(ids, ["dev-2", "lead-1"]);
+  });
+
+  it("resolveDiscussionParticipants always includes the creator even if omitted from the list", () => {
+    const resolved = resolveDiscussionParticipants(
+      "agents",
+      { ...author, id: "solo-1", name: "Solo" },
+      allAgents,
+      [], // nobody explicit
+    );
+    assert.ok(resolved.some((p) => p.id === "solo-1" && p.name === "Solo"));
+    assert.equal(resolved.length, 1);
+  });
+
+  it("startDiscussion defaults audience to 'all' and persists it + the snapshot", () => {
+    const parts = resolveDiscussionParticipants("all", author, allAgents);
+    const id = startDiscussion(session, {
+      topic: "team retro",
+      kind: "retro",
+      participants: parts,
+      author,
+    });
+    const d = readDiscussion(session, id)!;
+    assert.equal(d.audience, "all");
+    assert.equal(d.participants.length, 3);
+  });
+
+  it("startDiscussion persists audience 'agents' and the focused snapshot", () => {
+    const parts = resolveDiscussionParticipants(
+      "agents", author, allAgents, [{ id: "dev-2", name: "Developer2", session }],
+    );
+    const id = startDiscussion(session, {
+      topic: "design jam",
+      kind: "design",
+      audience: "agents",
+      participants: parts,
+      author,
+    });
+    const d = readDiscussion(session, id)!;
+    assert.equal(d.audience, "agents");
+    assert.equal(d.participants.length, 2); // creator + Developer2
+    assert.equal(d.participants.some((p) => p.id === "dev-1"), false);
+  });
+
+  it("startDiscussion includes the creator even when the adapter omits them", () => {
+    const id = startDiscussion(session, {
+      topic: "creator always in",
+      audience: "agents",
+      // Adapter forgot to include the creator in the participant list.
+      participants: [{ id: "dev-2", name: "Developer2", session }],
+      author,
+    });
+    const d = readDiscussion(session, id)!;
+    assert.ok(d.participants.some((p) => p.id === author.id && p.name === author.name));
+  });
+
+  it("audience survives close and is surfaced in summary + render", () => {
+    const id = startDiscussion(session, {
+      topic: "close keeps audience",
+      audience: "agents",
+      participants: [{ id: "dev-2", name: "Developer2", session }],
+      author,
+    });
+    closeDiscussion(session, id, { summary: "decided.", author });
+
+    const d = readDiscussion(session, id)!;
+    assert.equal(d.audience, "agents"); // closed event re-embeds audience
+
+    const summary = summarizeDiscussion(d);
+    assert.equal(summary.audience, "agents");
+
+    const rendered = renderDiscussion(d);
+    assert.ok(rendered.includes("Audience: agents"));
+
+    const listLine = renderDiscussionList([summary]);
+    assert.ok(listLine.includes("agents,"));
+  });
+
+  it("normalizeAudience defaults unknown/undefined to 'all'", () => {
+    assert.equal(normalizeAudience(undefined), "all");
+    assert.equal(normalizeAudience("all"), "all");
+    assert.equal(normalizeAudience("agents"), "agents");
   });
 });
