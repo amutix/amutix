@@ -2366,12 +2366,11 @@ describe("Prompt assembly", () => {
       projectContext: "CONTEXT",
       roleProfile: "ROLE",
       identity: "IDENTITY",
-      codebaseContext: "CODEBASE",
       workState: "WORK",
       teamContext: "TEAM",
       interfaceGuidance: "INTERFACE",
     });
-    const order = ["COMMON", "CONTEXT", "ROLE", "IDENTITY", "CODEBASE", "WORK", "TEAM", "INTERFACE"];
+    const order = ["COMMON", "CONTEXT", "ROLE", "IDENTITY", "WORK", "TEAM", "INTERFACE"];
     // Each section appears, and in the right relative order
     let lastIdx = -1;
     for (const section of order) {
@@ -2414,14 +2413,13 @@ describe("Prompt assembly", () => {
 });
 
 describe("Prompt preview / debug surface", () => {
-  it("PROMPT_SECTION_ORDER lists all nine sections in the deliberate order", () => {
+  it("PROMPT_SECTION_ORDER lists all eight sections in the deliberate order", () => {
     assert.deepEqual([...PROMPT_SECTION_ORDER], [
       "commonPrinciples",
       "waysOfWorking",
       "projectContext",
       "roleProfile",
       "identity",
-      "codebaseContext",
       "workState",
       "teamContext",
       "interfaceGuidance",
@@ -2453,7 +2451,7 @@ describe("Prompt preview / debug surface", () => {
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
     assert.equal(out.includes("Pi's base system prompt"), false);
-    assert.ok(/Sections gathered \(2\/9\)/.test(out));
+    assert.ok(/Sections gathered \(2\/8\)/.test(out));
     assert.ok(out.includes("/amux prompt all"));
     assert.equal(out.includes("---- composed block"), false);
     assert.equal(out.includes("COMMON"), false);
@@ -2472,7 +2470,7 @@ describe("Prompt preview / debug surface", () => {
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
     assert.equal(out.includes("Pi's base system prompt"), false);
-    assert.ok(/Sections gathered \(2\/9\)/.test(out));
+    assert.ok(/Sections gathered \(2\/8\)/.test(out));
     // The composed block is included verbatim
     assert.ok(out.includes("---- composed block (appended to base prompt) ----"));
     assert.ok(out.includes("COMMON"));
@@ -2483,7 +2481,7 @@ describe("Prompt preview / debug surface", () => {
 
   it("formatPromptPreview reports none gathered and explains nothing is appended when all empty", () => {
     const out = formatPromptPreview({});
-    assert.match(out, /Sections gathered \(0\/9\): \(none\)/);
+    assert.match(out, /Sections gathered \(0\/8\): \(none\)/);
     assert.ok(out.includes("nothing is appended to the base prompt"));
   });
 

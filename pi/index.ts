@@ -16,7 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
-import { mkdirSync, readdirSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, existsSync } from "node:fs";
 import {
   getSessionsDir,
   sessionDir,
@@ -455,21 +455,16 @@ export default function (pi: ExtensionAPI) {
     // ── Section 4: Agent identity + workspace ──
     let identity = `## Your Identity & Workspace\nYou are agent "${name}" in session "${session}" (full address: ${myAddress()}).`;
     if (myRoleName) identity += `\nRole: ${myRoleName}.`;
-    let workspace = currentCtx?.cwd;
     {
       const agent = await findById(session, id);
       if (agent?.workspace) {
-        workspace = agent.workspace;
         const branchResult = await pi.exec("git", ["-C", agent.workspace, "branch", "--show-current"], { timeout: 5000 });
         const branch = branchResult.stdout?.trim() || "unknown";
         identity += `\nWorkspace: ${agent.workspace} (branch: ${branch}). Use this as your working directory for all file operations.`;
       }
     }
 
-    // ── Section 5: Compact dynamic codebase snapshot ──
-    const codebaseContext = workspace ? await buildCodebaseContext(workspace) : "";
-
-    // ── Section 6: Current work state (active/review/assigned, spec, recent comments) ──
+    // ── Section 5: Current work state (active/review/assigned, spec, recent comments) ──
     let workState = "";
     {
       const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === id);
@@ -593,68 +588,10 @@ Read and write shared documents using the standard read/write/edit tools.
       projectContext,
       roleProfile,
       identity,
-      codebaseContext,
       workState,
       teamContext,
       interfaceGuidance,
     };
-  }
-
-  async function buildCodebaseContext(workspace: string): Promise<string> {
-    const lines: string[] = ["## Codebase Snapshot"];
-    const gitRootResult = await pi.exec("git", ["-C", workspace, "rev-parse", "--show-toplevel"], { timeout: 3000 });
-    const root = gitRootResult.code === 0 && gitRootResult.stdout.trim() ? gitRootResult.stdout.trim() : workspace;
-    lines.push(`Repo: ${root}`);
-
-    if (gitRootResult.code === 0) {
-      const [branchResult, statusResult] = await Promise.all([
-        pi.exec("git", ["-C", root, "branch", "--show-current"], { timeout: 3000 }),
-        pi.exec("git", ["-C", root, "status", "--short"], { timeout: 3000 }),
-      ]);
-      const branch = branchResult.stdout.trim() || "detached";
-      const changed = statusResult.stdout.trim().split("\n").filter(Boolean);
-      lines.push(`Git: ${branch}, ${changed.length === 0 ? "clean" : `${changed.length} changed file${changed.length === 1 ? "" : "s"}`}`);
-      if (changed.length > 0) {
-        lines.push(`Changed: ${changed.slice(0, 5).map((l) => l.trim()).join("; ")}${changed.length > 5 ? "; …" : ""}`);
-      }
-    }
-
-    const packagePath = `${root}/package.json`;
-    if (existsSync(packagePath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
-        const manager = existsSync(`${root}/pnpm-lock.yaml`) ? "pnpm"
-          : existsSync(`${root}/bun.lockb`) || existsSync(`${root}/bun.lock`) ? "bun"
-          : existsSync(`${root}/yarn.lock`) ? "yarn"
-          : existsSync(`${root}/package-lock.json`) ? "npm"
-          : "npm";
-        const scripts = Object.keys(pkg.scripts || {});
-        lines.push(`Package: ${pkg.name || "(unnamed)"}${pkg.version ? `@${pkg.version}` : ""} (${manager})`);
-        if (scripts.length > 0) lines.push(`Scripts: ${scripts.slice(0, 8).join(", ")}${scripts.length > 8 ? ", …" : ""}`);
-        const entries: string[] = [];
-        if (pkg.bin) entries.push(`bin=${typeof pkg.bin === "string" ? pkg.bin : Object.values(pkg.bin).join(",")}`);
-        if (pkg.main) entries.push(`main=${pkg.main}`);
-        if (pkg.module) entries.push(`module=${pkg.module}`);
-        if (pkg.pi?.extensions?.length) entries.push(`pi=${pkg.pi.extensions.join(",")}`);
-        if (entries.length > 0) lines.push(`Entry points: ${entries.slice(0, 4).join("; ")}`);
-      } catch {
-        lines.push("Package: package.json present (unreadable)");
-      }
-    }
-
-    try {
-      const skip = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".amux"]);
-      const dirs = readdirSync(root, { withFileTypes: true })
-        .filter((d) => d.isDirectory() && !skip.has(d.name) && !d.name.startsWith("."))
-        .map((d) => `${d.name}/`)
-        .sort()
-        .slice(0, 10);
-      if (dirs.length > 0) lines.push(`Top dirs: ${dirs.join(" ")}`);
-    } catch {
-      // Ignore directory snapshot errors.
-    }
-
-    return lines.length > 1 ? lines.join("\n") : "";
   }
 
   // -- Tools ----------------------------------------------------

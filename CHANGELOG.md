@@ -4,7 +4,6 @@
 
 ### Added
 
-- Prompt assembly now includes a compact dynamic codebase snapshot with repo, git, package scripts, entry points, changed files, and top-level directories.
 - New projects now get a small default `WOW.md` with sensible team norms for comments, review, waiting/reminders, and learnings.
 - Task comments now notify relevant task subscribers by default, so assignees/participants wake and reassess task state without a separate `amux_send`.
 
