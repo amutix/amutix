@@ -2670,129 +2670,127 @@ Read and write shared documents using the standard read/write/edit tools.
     return handleContext(args, ctx);
   }
 
-  async function handleContext(args: string[], ctx: ExtensionContext): Promise<void> {
+
+  // ── shared managed-artifact handler ──────────────────────────
+
+  type ArtifactOps = {
+    /** Human-readable label for messages (e.g. "project vision/context"). */
+    label: string;
+    /** Short name for help text and commands (e.g. "project"). */
+    name: string;
+    /** Read the artifact, returning null if it does not exist. */
+    read(): string | null;
+    /** Write content and return the full path. */
+    write(content: string): string;
+    /** Append content and return the full path. */
+    append(content: string): string;
+    /** Clear the artifact and return the full path. */
+    clear(): string;
+    /** Return the full artifact path. */
+    path(): string;
+  };
+
+  async function handleManagedArtifact(
+    args: string[],
+    ctx: ExtensionContext,
+    ops: ArtifactOps,
+  ): Promise<void> {
     if (!mySession) {
       ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
       return;
     }
 
-    ensureArtifactDirs();
-    const contextPath = projectContextPath(mySession);
     const sub = args[0] || "show";
 
     switch (sub) {
       case "show": {
-        const content = readProjectContext(mySession);
+        const content = ops.read();
+        const p = ops.path();
         if (!content) {
-          ctx.ui.notify(`No project vision/context set.\n\nUse /amux project vision set <text>`, "info");
+          ctx.ui.notify(`No ${ops.label} set.
+
+Use /amux ${ops.name} set <text>`, "info");
         } else {
-          ctx.ui.notify(`Project vision/context (${contextPath}):\n\n${content}`, "info");
+          ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} (${p}):
+
+${content}`, "info");
         }
         break;
       }
       case "edit": {
-        const current = readProjectContext(mySession, 0) || "";
-        const result = await ctx.ui.editor("Edit project vision/context:", current);
+        const current = ops.read() ?? "";
+        const result = await ctx.ui.editor(`Edit ${ops.label}:`, current);
         if (result === null || result === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
-        writeProjectContext(mySession, result);
-        ctx.ui.notify("Project vision/context updated. Changes affect future agent prompts.", "info");
+        ops.write(result);
+        ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} updated. Changes affect future agent prompts.`, "info");
         break;
       }
       case "set": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify("Usage: /amux project vision set <text>", "warning"); return; }
-        writeProjectContext(mySession, text);
-        ctx.ui.notify("Project vision/context set. Changes affect future agent prompts.", "info");
+        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.name} set <text>`, "warning"); return; }
+        ops.write(text);
+        ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} set. Changes affect future agent prompts.`, "info");
         break;
       }
       case "append": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify("Usage: /amux project vision append <text>", "warning"); return; }
-        appendProjectContext(mySession, text);
-        ctx.ui.notify("Appended to project vision/context. Changes affect future agent prompts.", "info");
+        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.name} append <text>`, "warning"); return; }
+        ops.append(text);
+        ctx.ui.notify(`Appended to ${ops.label}. Changes affect future agent prompts.`, "info");
         break;
       }
       case "clear": {
-        const confirm = await ctx.ui.confirm("Clear project vision/context?", "Remove all project context? This affects future agent prompts.");
+        const confirm = await ctx.ui.confirm(`Clear ${ops.label}?`, `Remove all ${ops.label}? This affects future agent prompts.`);
         if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
-        clearProjectContext(mySession);
-        ctx.ui.notify("Project vision/context cleared.", "info");
+        ops.clear();
+        ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} cleared.`, "info");
         break;
       }
       case "path": {
-        ctx.ui.notify(contextPath, "info");
+        ctx.ui.notify(ops.path(), "info");
         break;
       }
       default:
         ctx.ui.notify(
-          "Usage:\n  /amux project                         Show project vision/context\n  /amux project vision set <t>          Replace project vision/context\n  /amux project vision append <t>       Append to project vision/context\n  /amux project vision edit             Open editor\n  /amux project vision clear            Clear project vision/context\n  /amux project vision path             Show CONTEXT.md path",
+          `Usage:
+  /amux ${ops.name}                         Show current ${ops.label}
+  /amux ${ops.name} set <t>          Replace ${ops.label}
+  /amux ${ops.name} append <t>       Append to ${ops.label}
+  /amux ${ops.name} edit             Open editor
+  /amux ${ops.name} clear            Clear ${ops.label}
+  /amux ${ops.name} path             Show path`,
           "info"
         );
     }
   }
+  async function handleContext(args: string[], ctx: ExtensionContext): Promise<void> {
+    return handleManagedArtifact(args, ctx, {
+      label: "project vision/context",
+      name: "project",
+      read: () => readProjectContext(mySession),
+      write: (c) => { writeProjectContext(mySession, c); return projectContextPath(mySession); },
+      append: (c) => { appendProjectContext(mySession, c); return projectContextPath(mySession); },
+      clear: () => clearProjectContext(mySession),
+      path: () => projectContextPath(mySession),
+    });
+  }
+
 
 
   // -- wow handler --
 
   async function handleWow(args: string[], ctx: ExtensionContext): Promise<void> {
-    if (!mySession) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
-      return;
-    }
-
-    const sub = args[0] || "show";
-
-    switch (sub) {
-      case "show": {
-        const content = readWaysOfWorking(mySession);
-        const path = wowPath(mySession);
-        if (!content) {
-          ctx.ui.notify(`No Ways of Working set.\n\nUse /amux wow edit  or  /amux wow set <text>`, "info");
-        } else {
-          ctx.ui.notify(`Ways of Working (${path}):\n\n${content}`, "info");
-        }
-        break;
-      }
-      case "edit": {
-        const current = readWaysOfWorking(mySession, 0) || "";
-        const result = await ctx.ui.editor("Edit Ways of Working:", current);
-        if (result === null || result === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
-        writeWaysOfWorking(mySession, result);
-        ctx.ui.notify("Ways of Working updated. Changes affect future agent prompts.", "info");
-        break;
-      }
-      case "set": {
-        const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify("Usage: /amux wow set <text>", "warning"); return; }
-        writeWaysOfWorking(mySession, text);
-        ctx.ui.notify("Ways of Working set. Changes affect future agent prompts.", "info");
-        break;
-      }
-      case "append": {
-        const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify("Usage: /amux wow append <text>", "warning"); return; }
-        appendWaysOfWorking(mySession, text);
-        ctx.ui.notify("Appended to Ways of Working. Changes affect future agent prompts.", "info");
-        break;
-      }
-      case "clear": {
-        const confirm = await ctx.ui.confirm("Clear Ways of Working?", "Remove all team Ways of Working? This affects future agent prompts.");
-        if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
-        clearWaysOfWorking(mySession);
-        ctx.ui.notify("Ways of Working cleared.", "info");
-        break;
-      }
-      case "path": {
-        ctx.ui.notify(wowPath(mySession), "info");
-        break;
-      }
-      default:
-        ctx.ui.notify(
-          "Usage:\n  /amux wow               Show current WoW\n  /amux wow edit          Open editor\n  /amux wow set <t>       Replace WoW\n  /amux wow append <t>    Append to WoW\n  /amux wow clear         Clear WoW\n  /amux wow path          Show WOW.md path",
-          "info"
-        );
-    }
+    return handleManagedArtifact(args, ctx, {
+      label: "Ways of Working",
+      name: "wow",
+      read: () => readWaysOfWorking(mySession),
+      write: (c) => { writeWaysOfWorking(mySession, c); return wowPath(mySession); },
+      append: (c) => { appendWaysOfWorking(mySession, c); return wowPath(mySession); },
+      clear: () => { clearWaysOfWorking(mySession); return wowPath(mySession); },
+      path: () => wowPath(mySession),
+    });
   }
+
 
 
   // -- status set command ---------------------------------------
