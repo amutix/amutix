@@ -107,6 +107,9 @@ import {
   markPendingReplyReplied,
   readPendingReplies,
   messagePreview,
+  taskCommentNotificationMessage,
+  assignmentNotificationMessage,
+  discussionNotificationMessage,
   type InboxMessage,
 } from "../core/messaging.ts";
 
@@ -370,6 +373,21 @@ describe("Messaging (crash-safe)", () => {
     const replied = await markPendingReplyReplied(session, "msg-1", "reply-1", "Receiver");
     assert.equal(replied!.status, "replied");
     assert.equal((await readPendingReplies(session, "sender")).length, 0);
+  });
+
+  it("formats descriptive notification messages", () => {
+    assert.match(
+      assignmentNotificationMessage([{ id: "TASK-01", title: "Implement parser" }]),
+      /Assigned to you: TASK-01 — Implement parser/,
+    );
+    assert.match(
+      taskCommentNotificationMessage({ taskId: "TASK-02", taskTitle: "Review API", authorName: "Lead", preview: "Please check error handling." }),
+      /Comment added on TASK-02 \(Review API\) by Lead/,
+    );
+    assert.match(
+      discussionNotificationMessage({ action: "post", discussionId: "DISC-01", topic: "Retro", authorName: "Developer", preview: "One risk is prompt bloat." }),
+      /Post added to discussion DISC-01 by Developer/,
+    );
   });
 });
 

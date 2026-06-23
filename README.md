@@ -240,7 +240,7 @@ Existing items without these fields behave as regular tasks. New item IDs use ty
 /amux status set away        # Unavailable
 ```
 
-Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a single generic attention signal when new work is assigned; working/focus/away agents are not interrupted.
+Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a concrete assignment notification when new work is assigned; working/focus/away agents are not interrupted.
 
 ## Tools (11)
 
@@ -383,7 +383,7 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 - **Zero overhead** -- invisible until you opt in
 - **UUID identity** -- 128-bit UUIDs, unique names per session (case-insensitive), agents persist across restarts
 - **Heartbeat presence** -- crashed agents auto-expire after 90s, stale reservations cleared automatically
-- **Agent availability** -- idle/working/focus/away status, auto-updated by task lifecycle, generic attention signals for idle agents
+- **Agent availability** -- idle/working/focus/away status, auto-updated by task lifecycle, descriptive attention notifications for idle agents
 - **Crash-safe messaging** -- messages survive crashes, delivered on reconnect
 - **File reservations** -- claim files before editing; conflicts show age, linked task context, and owner work state
 - **Task backlog** -- state-derived workflow with task-scoped comments, dependencies, batch assign, assignee ownership. Assignments are visible via task state, not inbox messages.

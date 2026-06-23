@@ -10,6 +10,7 @@
 - Task comments now notify relevant task subscribers by default, so assignees/participants wake and reassess task state without a separate `amux_send`.
 - `amux_discussion` tool for multi-party team discussions: start, post, show, list, close with participant inbox notifications and compact open-discussions prompt metadata.
 - Task-comment prompt context now injects compact latest substantive discussion previews instead of repeated raw comment bodies.
+- Assignment, task-comment, and discussion notifications now use specific descriptive messages instead of generic state-change nudges.
 
 ### Removed
 

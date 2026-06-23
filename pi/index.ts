@@ -84,6 +84,9 @@ import {
   markPendingReplyReplied,
   readPendingReplies,
   messagePreview,
+  taskCommentNotificationMessage,
+  assignmentNotificationMessage,
+  discussionNotificationMessage,
   type InboxMessage,
 } from "../core/messaging";
 import {
@@ -1595,7 +1598,7 @@ Read and write shared documents using the standard read/write/edit tools.
           const taskIds = params.id.split(",").map((s: string) => s.trim()).filter(Boolean);
           const result = await serviceAssignTasks(mySession, taskIds, target.id, target.name, myId, myName);
 
-          // Pi-specific: deliver generic attention signal when service requests it.
+          // Pi-specific: deliver a concrete assignment notification when service requests attention.
           if (result.shouldSignal) {
             sendToInbox(mySession, result.targetId, {
               id: newMessageId(),
@@ -1603,7 +1606,9 @@ Read and write shared documents using the standard read/write/edit tools.
               fromName: myName || "system",
               fromSession: mySession,
               timestamp: new Date().toISOString(),
-              message: "Your amux state has changed. Check /amux or amux_task list for current tasks.",
+              message: assignmentNotificationMessage(result.assigned.map((t) => ({ id: t.id, title: t.title }))),
+              category: "fyi",
+              requiresAttention: true,
             });
           }
 
@@ -1852,7 +1857,7 @@ Read and write shared documents using the standard read/write/edit tools.
           });
 
           const discussion = readDiscussion(mySession, id)!;
-          await notifyDiscussionParticipants(discussion, "discussion-started", `${myName} started ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`, params);
+          await notifyDiscussionParticipants(discussion, "discussion-started", discussionNotificationMessage({ action: "started", discussionId: discussion.id, topic: discussion.topic, authorName: myName }), params);
           const view = renderDiscussion(discussion);
           return {
             content: [{ type: "text", text: view }],
@@ -1873,7 +1878,7 @@ Read and write shared documents using the standard read/write/edit tools.
           await notifyDiscussionParticipants(
             discussion,
             "discussion-post",
-            `New post in ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`,
+            discussionNotificationMessage({ action: "post", discussionId: discussion.id, topic: discussion.topic, authorName: myName, preview: postPreview(params.content) }),
             params,
             params.content,
           );
@@ -1925,7 +1930,7 @@ Read and write shared documents using the standard read/write/edit tools.
           await notifyDiscussionParticipants(
             discussion,
             "discussion-closed",
-            `${discussion.id}: "${discussion.topic}" has been closed by ${myName}: ${params.summary.trim()}.`,
+            discussionNotificationMessage({ action: "closed", discussionId: discussion.id, topic: discussion.topic, authorName: myName, preview: postPreview(params.summary) }),
             params,
             params.summary,
           );
@@ -2184,7 +2189,7 @@ Read and write shared documents using the standard read/write/edit tools.
         fromRole: myRoleName,
         fromSession: session,
         timestamp: comment.timestamp,
-        message: `${task.id} has a new comment from ${myName}: “${preview}”\nRun amux_task show ${task.id} for full context.`,
+        message: taskCommentNotificationMessage({ taskId: task.id, taskTitle: task.title, authorName: myName, preview }),
         category: "task-comment",
         taskId: task.id,
         notificationType: "task-comment",

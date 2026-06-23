@@ -208,6 +208,43 @@ export function messagePreview(text: string, maxLength = 160): string {
   return truncatePreview(text, maxLength);
 }
 
+export function taskCommentNotificationMessage(args: {
+  taskId: string;
+  taskTitle?: string;
+  authorName: string;
+  preview: string;
+}): string {
+  const title = args.taskTitle ? ` (${args.taskTitle})` : "";
+  return `Comment added on ${args.taskId}${title} by ${args.authorName}: “${args.preview}”\nRun amux_task show ${args.taskId} for full context.`;
+}
+
+export function assignmentNotificationMessage(tasks: Array<{ id: string; title: string }>): string {
+  if (tasks.length === 1) {
+    const task = tasks[0]!;
+    return `Assigned to you: ${task.id} — ${task.title}\nRun amux_task show ${task.id} for details, or amux_task pick ${task.id} to start.`;
+  }
+  const lines = tasks.map((task) => `- ${task.id}: ${task.title}`).join("\n");
+  return `Assigned ${tasks.length} tasks to you:\n${lines}\nRun amux_task summary for the current backlog, or amux_task pick to start the next assigned task.`;
+}
+
+export function discussionNotificationMessage(args: {
+  action: "started" | "post" | "closed";
+  discussionId: string;
+  topic: string;
+  authorName: string;
+  preview?: string;
+}): string {
+  if (args.action === "started") {
+    return `Discussion ${args.discussionId} started by ${args.authorName}: “${args.topic}”\nRun amux_discussion show ${args.discussionId} to participate.`;
+  }
+  if (args.action === "closed") {
+    const summary = args.preview ? ` Summary: “${args.preview}”` : "";
+    return `Discussion ${args.discussionId} closed by ${args.authorName}: “${args.topic}”.${summary}\nRun amux_discussion show ${args.discussionId} for the outcome and thread.`;
+  }
+  const preview = args.preview ? ` “${args.preview}”` : "";
+  return `Post added to discussion ${args.discussionId} by ${args.authorName}: “${args.topic}”.${preview}\nRun amux_discussion show ${args.discussionId} for full context.`;
+}
+
 export async function createPendingReply(
   session: string,
   entry: Omit<PendingReply, "status">
