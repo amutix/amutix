@@ -79,6 +79,8 @@ import {
   getAmuxTool,
   artifactsTool,
   listTool,
+  projectTool,
+  wowTool,
   objectSchema,
   optionalBoolProp,
   type AmuxToolContext,
@@ -2700,12 +2702,16 @@ describe("Prompt context gatherer", () => {
 });
 
 describe("Neutral tool registry (SPEC-18)", () => {
-  it("allAmuxTools lists the pilot tools and registry lookups resolve", () => {
+  it("allAmuxTools lists migrated tools and registry lookups resolve", () => {
     const tools = allAmuxTools();
     const names = tools.map((t) => t.name);
     assert.ok(names.includes("amux_artifacts"));
     assert.ok(names.includes("amux_list"));
+    assert.ok(names.includes("amux_project"));
+    assert.ok(names.includes("amux_wow"));
     assert.equal(getAmuxTool("amux_list")!.name, "amux_list");
+    assert.equal(getAmuxTool("amux_project")!.name, "amux_project");
+    assert.equal(getAmuxTool("amux_wow")!.name, "amux_wow");
     assert.equal(getAmuxTool("nonexistent"), undefined);
   });
 
@@ -2722,7 +2728,7 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.ok(!schema.required.includes("flag"));
   });
 
-  it("pilot tools carry stable metadata (name/label/description/schema)", () => {
+  it("migrated tools carry stable metadata (name/label/description/schema)", () => {
     assert.equal(artifactsTool.name, "amux_artifacts");
     assert.equal(artifactsTool.label, "List Artifacts");
     assert.deepEqual(artifactsTool.inputSchema, { type: "object", properties: {}, required: [] });
@@ -2732,6 +2738,18 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.deepEqual(listTool.inputSchema.required, []);
     assert.equal(listTool.inputSchema.properties.allSessions.type, "boolean");
     assert.ok(listTool.description.includes("allSessions=true"));
+
+    assert.equal(projectTool.name, "amux_project");
+    assert.equal(projectTool.label, "Project Vision/Context");
+    assert.deepEqual(projectTool.inputSchema.required, ["action"]);
+    assert.deepEqual(projectTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
+    assert.ok(projectTool.promptGuidelines?.some((g) => g.includes("project vision/context")));
+
+    assert.equal(wowTool.name, "amux_wow");
+    assert.equal(wowTool.label, "Ways of Working");
+    assert.deepEqual(wowTool.inputSchema.required, ["action"]);
+    assert.deepEqual(wowTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
+    assert.ok(wowTool.promptGuidelines?.some((g) => g.includes("team collaboration norms")));
   });
 });
 
@@ -2794,6 +2812,50 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     const result = await listTool.execute(emptyCtx, {});
     assert.equal(result.text, "No agents online.");
     assert.deepEqual((result.details as { agents: unknown[] }).agents, []);
+  });
+
+  it("amux_project neutral handler preserves show/set/append/path/clear behavior", async () => {
+    const empty = await projectTool.execute(ctx, { action: "show" });
+    assert.equal(empty.text, "No project vision/context set. Use amux_project action=set to create one.");
+    assert.deepEqual((empty.details as { content: string | null }).content, null);
+
+    const set = await projectTool.execute(ctx, { action: "set", content: "North star" });
+    assert.equal(set.text, "Project vision/context set. Changes affect future agent prompts.");
+    assert.equal((set.details as { content: string }).content, "North star");
+
+    const append = await projectTool.execute(ctx, { action: "append", content: "Second line" });
+    assert.equal(append.text, "Appended to project vision/context. Changes affect future agent prompts.");
+    assert.ok((append.details as { content: string }).content.includes("North star"));
+    assert.ok((append.details as { content: string }).content.includes("Second line"));
+
+    const pathResult = await projectTool.execute(ctx, { action: "path" });
+    assert.ok(pathResult.text.endsWith("artifacts/project/CONTEXT.md"));
+
+    const clear = await projectTool.execute(ctx, { action: "clear" });
+    assert.equal(clear.text, "Project vision/context cleared. Changes affect future agent prompts.");
+    assert.equal((clear.details as { content: string }).content, "");
+  });
+
+  it("amux_wow neutral handler preserves show/set/append/path/clear behavior", async () => {
+    const empty = await wowTool.execute(ctx, { action: "show" });
+    assert.equal(empty.text, "No Ways of Working set. Use amux_wow action=set to create one.");
+    assert.deepEqual((empty.details as { content: string | null }).content, null);
+
+    const set = await wowTool.execute(ctx, { action: "set", content: "Review before done" });
+    assert.equal(set.text, "Ways of Working set. Changes affect future agent prompts.");
+    assert.equal((set.details as { content: string }).content, "Review before done");
+
+    const append = await wowTool.execute(ctx, { action: "append", content: "Sync before review" });
+    assert.equal(append.text, "Appended to Ways of Working. Changes affect future agent prompts.");
+    assert.ok((append.details as { content: string }).content.includes("Review before done"));
+    assert.ok((append.details as { content: string }).content.includes("Sync before review"));
+
+    const pathResult = await wowTool.execute(ctx, { action: "path" });
+    assert.ok(pathResult.text.endsWith("artifacts/project/WOW.md"));
+
+    const clear = await wowTool.execute(ctx, { action: "clear" });
+    assert.equal(clear.text, "Ways of Working cleared. Changes affect future agent prompts.");
+    assert.equal((clear.details as { content: string }).content, "");
   });
 });
 
