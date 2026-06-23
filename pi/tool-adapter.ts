@@ -39,12 +39,21 @@ function propertyToTypeBox(prop: JsonSchemaProperty): TypeBoxSchema {
     case "boolean":
       return Type.Boolean(opts) as unknown as TypeBoxSchema;
     case "number":
+      return Type.Number(opts) as unknown as TypeBoxSchema;
     case "integer":
       return Type.Integer(opts) as unknown as TypeBoxSchema;
-    default:
-      // Fallback: treat unknown/complex shapes as a string schema (safe default
-      // for the pilot tools; richer types can be added as tools migrate).
-      return Type.String(opts) as unknown as TypeBoxSchema;
+    case "array": {
+      const itemSchema = prop.items ? propertyToTypeBox(prop.items) : Type.String();
+      return Type.Array(itemSchema, opts) as unknown as TypeBoxSchema;
+    }
+    case "object": {
+      const properties: Record<string, TypeBoxSchema> = {};
+      for (const [key, child] of Object.entries(prop.properties || {})) {
+        const node = propertyToTypeBox(child);
+        properties[key] = prop.required?.includes(key) ? node : (Type.Optional(node) as unknown as TypeBoxSchema);
+      }
+      return Type.Object(properties, opts) as unknown as TypeBoxSchema;
+    }
   }
 }
 

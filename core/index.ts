@@ -21,6 +21,7 @@ export * from "./prompt-assembly";
 export * from "./notification-service";
 export * from "./setup-service";
 export * from "./prompt-context";
+export * from "./tools/index";
 export * from "./ways-of-working";
 export * from "./discussions";
 

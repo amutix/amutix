@@ -499,15 +499,18 @@ export default function (pi: ExtensionAPI) {
   // pi/tool-adapter.ts; tool product logic is framework-neutral in core/tools.
   // (amux_artifacts + amux_list are migrated; other tools remain inline pending
   // SPEC-18 slices 2-5.)
-  registerAmuxTools(pi, allAmuxTools(), () =>
-    buildAmuxToolContext({
-      session: mySession!,
-      agentId: myId!,
-      agentName: myName!,
+  registerAmuxTools(pi, allAmuxTools(), () => {
+    if (!mySession || !myId || !myName) {
+      throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
+    }
+    return buildAmuxToolContext({
+      session: mySession,
+      agentId: myId,
+      agentName: myName,
       roleName: myRoleName,
       exec: pi.exec,
-    }),
-  );
+    });
+  });
 
   // - amux_role -------------------------------------------------
 

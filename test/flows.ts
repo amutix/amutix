@@ -2718,7 +2718,6 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.deepEqual(schema.required, ["name"]);
     assert.equal(schema.properties.flag.type, "boolean");
     assert.equal(schema.properties.flag.description, "a flag");
-    assert.ok(!("flag" in Object.fromEntries([["flag", true]]) && false));
     // required-list membership is what marks optionality, not a property flag
     assert.ok(!schema.required.includes("flag"));
   });
