@@ -69,10 +69,20 @@ export function formatTaskComment(entry: TaskComment): string {
   return `[${date}] ${entry.agent} (${entry.type}): ${entry.text}`;
 }
 
-/** Return a compact one-line preview suitable for inbox notifications. */
+/** Return a compact one-line preview suitable for inbox notifications and prompt summaries. */
 export function taskCommentPreview(text: string, maxLength = 160): string {
   const compact = text.replace(/[\r\n\t]+/g, " ").replace(/ +/g, " ").trim();
   return compact.length > maxLength ? `${compact.slice(0, Math.max(0, maxLength - 1))}…` : compact;
+}
+
+/** Return only substantive task discussion comments, excluding lifecycle activity entries. */
+export function substantiveTaskComments(entries: TaskComment[]): TaskComment[] {
+  return entries.filter((entry) => entry.type === "comment");
+}
+
+/** Return the latest substantive task discussion comment, if any. */
+export function latestSubstantiveTaskComment(entries: TaskComment[]): TaskComment | null {
+  return substantiveTaskComments(entries).at(-1) ?? null;
 }
 
 /** Extract explicit @AgentName-style mentions from comment text. */

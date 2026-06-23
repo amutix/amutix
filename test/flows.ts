@@ -161,6 +161,8 @@ import {
   resolveTaskCommentSubscribers,
   taskCommentMentions,
   taskCommentPreview,
+  substantiveTaskComments,
+  latestSubstantiveTaskComment,
   type TaskComment,
 } from "../core/task-comments.ts";
 import {
@@ -1495,6 +1497,21 @@ describe("Task-scoped comments", () => {
     assert.equal(taskCommentPreview("Confirmed\nproceed\tnow"), "Confirmed proceed now");
     assert.equal(taskCommentPreview("x".repeat(12), 8), "xxxxxxx…");
     assert.deepEqual(taskCommentMentions("cc @Dev_1 and @Reviewer-2"), ["Dev_1", "Reviewer-2"]);
+  });
+
+  it("filters substantive comments for prompt summaries", () => {
+    const entries: TaskComment[] = [
+      { timestamp: "2026-06-20T10:00:00.000Z", agent: "Lead", agentId: "lead", type: "activity", text: "Assigned to Developer" },
+      { timestamp: "2026-06-20T10:01:00.000Z", agent: "Developer", agentId: "dev", type: "comment", text: "I am checking the interface." },
+      { timestamp: "2026-06-20T10:02:00.000Z", agent: "Developer", agentId: "dev", type: "activity", text: "Picked by Developer" },
+      { timestamp: "2026-06-20T10:03:00.000Z", agent: "Lead", agentId: "lead", type: "comment", text: "Please keep the prompt summary compact." },
+    ];
+    assert.deepEqual(substantiveTaskComments(entries).map((entry) => entry.text), [
+      "I am checking the interface.",
+      "Please keep the prompt summary compact.",
+    ]);
+    assert.equal(latestSubstantiveTaskComment(entries)!.text, "Please keep the prompt summary compact.");
+    assert.equal(latestSubstantiveTaskComment(entries.filter((entry) => entry.type === "activity")), null);
   });
 
   it("resolves task comment subscribers from assignee, creator, commenters, and mentions", () => {

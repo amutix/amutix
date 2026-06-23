@@ -118,6 +118,8 @@ import {
   formatTaskComment,
   resolveTaskCommentSubscribers,
   taskCommentPreview,
+  substantiveTaskComments,
+  latestSubstantiveTaskComment,
   type TaskComment,
 } from "../core/task-comments";
 import {
@@ -459,6 +461,16 @@ export default function (pi: ExtensionAPI) {
     return { systemPrompt: event.systemPrompt + "\n\n" + assembled };
   });
 
+  function formatTaskDiscussionPromptSummary(taskId: string, comments: TaskComment[]): string {
+    const substantive = substantiveTaskComments(comments);
+    const latest = latestSubstantiveTaskComment(comments);
+    if (!latest) return "";
+    const count = substantive.length;
+    const preview = taskCommentPreview(latest.text, 180);
+    const plural = count === 1 ? "comment" : "comments";
+    return `Recent task discussion: ${count} ${plural}; latest from ${latest.agent} ${formatMessageAge(latest.timestamp)}: "${preview}"\nUse amux_task show ${taskId} for the full thread.`;
+  }
+
   /**
    * Gather all amux coordination sections for the joined agent, in the
    * deliberate order. This is the SINGLE gathering path used by both the
@@ -515,15 +527,20 @@ export default function (pi: ExtensionAPI) {
           if (spec) workState += `\n\n${spec}`;
         }
         const comments = readTaskComments(session, active.id);
-        if (comments.length > 0) {
-          const recent = comments.slice(-3);
-          workState += `\nRecent activity:\n${recent.map((c) => `- ${formatTaskComment(c)}`).join("\n")}`;
-        }
+        const commentSummary = formatTaskDiscussionPromptSummary(active.id, comments);
+        if (commentSummary) workState += `\n\n${commentSummary}`;
       }
 
       if (review.length > 0) {
         const ids = review.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-        workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task comment for review discussion.`;
+        const reviewSummaries = review
+          .map((t) => formatTaskDiscussionPromptSummary(t.id, readTaskComments(session, t.id)))
+          .filter((summary) => summary.length > 0)
+          .map((summary) => `  - ${summary.replace(/\n/g, "\n    ")}`);
+        workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task show for full context and amux_task comment for review discussion.`;
+        if (reviewSummaries.length > 0) {
+          workState += `\n\nLatest review discussion preview:\n${reviewSummaries.join("\n")}`;
+        }
       }
 
       if (assigned.length > 0) {
