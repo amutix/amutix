@@ -37,7 +37,6 @@ Translate user intent into a clear plan, decompose it into executable work, dele
 - `amux_task summary/show/plan/comment/assign/review/done/archive` for the work pipeline.
 - `amux_project` for durable vision/context.
 - `amux_task plan`/`edit-plan` to attach specs to complex tasks.
-- Prefer task comments over direct messages for task-scoped discussion.
 
 ## Reporting
 
