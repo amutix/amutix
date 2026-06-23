@@ -51,6 +51,8 @@ export interface PromptSections {
   teamContext?: string;
   /** 8. Interface/tool guidance and shared artifact paths. */
   interfaceGuidance?: string;
+  /** 9. Compact open-discussions metadata (no full text). */
+  openDiscussions?: string;
 }
 
 /** The deliberate section order. Documented here as the single source of truth. */
@@ -63,6 +65,7 @@ const SECTION_ORDER: (keyof PromptSections)[] = [
   "workState",
   "teamContext",
   "interfaceGuidance",
+  "openDiscussions",
 ];
 
 /** Human-readable labels for each section, for previews/debug output. */
@@ -75,6 +78,7 @@ export const PROMPT_SECTION_LABELS: Record<keyof PromptSections, string> = {
   workState: "Work state",
   teamContext: "Team context",
   interfaceGuidance: "Interface guidance",
+  openDiscussions: "Open discussions",
 };
 
 /** The deliberate section order, exported for previews/tests. */

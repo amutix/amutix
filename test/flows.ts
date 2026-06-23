@@ -2511,7 +2511,7 @@ describe("Prompt assembly", () => {
 });
 
 describe("Prompt preview / debug surface", () => {
-  it("PROMPT_SECTION_ORDER lists all eight sections in the deliberate order", () => {
+  it("PROMPT_SECTION_ORDER lists all nine sections in the deliberate order", () => {
     assert.deepEqual([...PROMPT_SECTION_ORDER], [
       "commonPrinciples",
       "waysOfWorking",
@@ -2521,6 +2521,7 @@ describe("Prompt preview / debug surface", () => {
       "workState",
       "teamContext",
       "interfaceGuidance",
+      "openDiscussions",
     ]);
   });
 
@@ -2549,7 +2550,7 @@ describe("Prompt preview / debug surface", () => {
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
     assert.equal(out.includes("Pi's base system prompt"), false);
-    assert.ok(/Sections gathered \(2\/8\)/.test(out));
+    assert.ok(/Sections gathered \(2\/9\)/.test(out));
     assert.ok(out.includes("/amux prompt all"));
     assert.equal(out.includes("---- composed block"), false);
     assert.equal(out.includes("COMMON"), false);
@@ -2568,7 +2569,7 @@ describe("Prompt preview / debug surface", () => {
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
     assert.equal(out.includes("Pi's base system prompt"), false);
-    assert.ok(/Sections gathered \(2\/8\)/.test(out));
+    assert.ok(/Sections gathered \(2\/9\)/.test(out));
     // The composed block is included verbatim
     assert.ok(out.includes("---- composed block (appended to base prompt) ----"));
     assert.ok(out.includes("COMMON"));
@@ -2579,7 +2580,7 @@ describe("Prompt preview / debug surface", () => {
 
   it("formatPromptPreview reports none gathered and explains nothing is appended when all empty", () => {
     const out = formatPromptPreview({});
-    assert.match(out, /Sections gathered \(0\/8\): \(none\)/);
+    assert.match(out, /Sections gathered \(0\/9\): \(none\)/);
     assert.ok(out.includes("nothing is appended to the base prompt"));
   });
 

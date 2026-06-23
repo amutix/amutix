@@ -136,6 +136,21 @@ import {
   wowPath,
 } from "../core/ways-of-working";
 import {
+  type ChannelKind,
+  type ChannelAudience,
+  type ChannelParticipant,
+  startDiscussion,
+  postToDiscussion,
+  closeDiscussion,
+  readDiscussion,
+  listDiscussions,
+  openDiscussionSummaries,
+  renderDiscussion,
+  renderDiscussionList,
+  resolveDiscussionParticipants,
+  normalizeAudience,
+} from "../core/discussions";
+import {
   renderTaskListRow,
   renderTaskDetails,
   renderProgressSummary,
@@ -605,7 +620,16 @@ Read and write shared documents using the standard read/write/edit tools.
 - Project (all agents): ${projectArtifactsDir()}
 - Private (you only): ${agentArtifactsDir(id)}`;
 
-    return {
+    // ── Compact open-discussions metadata ──
+    let openDiscussions = "";
+    {
+      const open = openDiscussionSummaries(session);
+      if (open.length > 0) {
+        openDiscussions = `## Open Discussions (${open.length})\n${open.map((d) => `- ${d.id}: ${d.topic} (${d.postCount} post${d.postCount !== 1 ? "s" : ""})`).join("\n")}`;
+      }
+    }
+
+        return {
       commonPrinciples: COMMON_PRINCIPLES,
       waysOfWorking,
       projectContext,
@@ -614,6 +638,7 @@ Read and write shared documents using the standard read/write/edit tools.
       workState,
       teamContext,
       interfaceGuidance,
+      openDiscussions,
     };
   }
 
@@ -1654,6 +1679,172 @@ Read and write shared documents using the standard read/write/edit tools.
           return {
             content: [{ type: "text", text: `\u26a0\ufe0f ${blockResult.task.id} blocked: ${params.reason}` }],
             details: blockResult,
+          };
+        }
+
+        default:
+          throw new Error(`Unknown action: ${params.action}`);
+      }
+    },
+  });
+
+
+  // - amux_discussion -------------------------------------------
+
+  pi.registerTool({
+    name: "amux_discussion",
+    label: "Multi-Party Discussions",
+    description:
+      "Start, post to, show, list, and close team discussions. " +
+      "Discussions are for cross-cutting topics (retros, brainstorms, design, sync) " +
+      "— not task-scoped work. For task-related discussion, use amux_task comment instead. " +
+      "For 1:1 exceptional communication, use amux_send.",
+    promptSnippet: "Start or contribute to team discussions (start, post, show, list, close)",
+    promptGuidelines: [
+      "Use amux_discussion for team-wide topics: retros, brainstorms, design reviews, syncs.",
+      "Use amux_task comment for task-scoped discussion — discussions are NOT a replacement.",
+      "Post to existing discussions rather than starting duplicates.",
+      "Close discussions with a summary of outcomes rather than leaving them open indefinitely.",
+    ],
+    parameters: Type.Object({
+      action: StringEnum(["start", "post", "show", "list", "close"] as const),
+      topic: Type.Optional(Type.String({ description: "Discussion topic (required for start)" })),
+      id: Type.Optional(Type.String({ description: "Discussion ID, e.g. DISC-01 (required for post, show, close)" })),
+      content: Type.Optional(Type.String({ description: "Post content (required for post); optional initial body for start" })),
+      summary: Type.Optional(Type.String({ description: "Closing summary (required for close)" })),
+      kind: Type.Optional(StringEnum(["discussion", "retro", "brainstorm", "design", "sync", "channel"] as const)),
+      audience: Type.Optional(StringEnum(["all", "agents"] as const)),
+      participants: Type.Optional(Type.Array(Type.String({
+        description: "Agent names for explicit participant discussions"
+      }))),
+    }),
+
+    async execute(_id, params) {
+      if (!mySession || !myId || !myName) {
+        throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+      }
+
+      switch (params.action) {
+        case "start": {
+          if (!params.topic) throw new Error("topic is required for start.");
+
+          const participants: ChannelParticipant[] = [];
+          if (params.participants?.length) {
+            for (const name of params.participants) {
+              const agent = await resolveAgent(name, mySession);
+              if (agent) {
+                participants.push({
+                  id: agent.id,
+                  name: agent.name,
+                  role: agent.roleName,
+                });
+              }
+            }
+          }
+
+          const id = startDiscussion(mySession, {
+            topic: params.topic,
+            kind: params.kind as ChannelKind,
+            audience: normalizeAudience(params.audience as ChannelAudience | undefined),
+            participants,
+            author: { id: myId, name: myName, session: mySession, role: myRoleName },
+            content: params.content,
+          });
+
+          const discussion = readDiscussion(mySession, id);
+          const view = renderDiscussion(discussion!);
+          return {
+            content: [{ type: "text", text: view }],
+            details: { discussion },
+          };
+        }
+
+        case "post": {
+          if (!params.id) throw new Error("id is required for post.");
+          if (!params.content) throw new Error("content is required for post.");
+
+          const discussion = postToDiscussion(mySession, params.id, {
+            content: params.content,
+            author: { id: myId, name: myName, session: mySession, role: myRoleName },
+          });
+          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
+
+          // Notify participants (excluding author)
+          const targets = resolveDiscussionParticipants(discussion, myId);
+          for (const p of targets) {
+            sendToInbox(mySession, p.id, {
+              id: newMessageId(),
+              from: myId,
+              fromName: myName,
+              fromRole: myRoleName,
+              fromSession: mySession,
+              timestamp: new Date().toISOString(),
+              message: `New post in ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`,
+            });
+          }
+
+          const view = renderDiscussion(discussion);
+          return {
+            content: [{ type: "text", text: view }],
+            details: { discussion },
+          };
+        }
+
+        case "show": {
+          if (!params.id) throw new Error("id is required for show.");
+
+          const discussion = readDiscussion(mySession, params.id);
+          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
+          const view = renderDiscussion(discussion);
+          return {
+            content: [{ type: "text", text: view }],
+            details: { discussion },
+          };
+        }
+
+        case "list": {
+          const summaries = listDiscussions(mySession);
+          if (summaries.length === 0) {
+            return {
+              content: [{ type: "text", text: "No discussions yet. Use amux_discussion start to create one." }],
+              details: { summaries: [] },
+            };
+          }
+          const view = renderDiscussionList(summaries);
+          return {
+            content: [{ type: "text", text: view }],
+            details: { summaries },
+          };
+        }
+
+        case "close": {
+          if (!params.id) throw new Error("id is required for close.");
+          if (!params.summary || !params.summary.trim()) throw new Error("summary is required for close.");
+
+          const discussion = closeDiscussion(mySession, params.id, {
+            summary: params.summary,
+            author: { id: myId, name: myName, session: mySession, role: myRoleName },
+          });
+          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
+
+          // Notify participants (excluding author)
+          const targets = resolveDiscussionParticipants(discussion, myId);
+          for (const p of targets) {
+            sendToInbox(mySession, p.id, {
+              id: newMessageId(),
+              from: myId,
+              fromName: myName,
+              fromRole: myRoleName,
+              fromSession: mySession,
+              timestamp: new Date().toISOString(),
+              message: `${discussion.id}: "${discussion.topic}" has been closed by ${myName}: ${params.summary.trim()}.`,
+            });
+          }
+
+          const view = renderDiscussion(discussion);
+          return {
+            content: [{ type: "text", text: view }],
+            details: { discussion },
           };
         }
 

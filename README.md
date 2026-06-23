@@ -236,6 +236,7 @@ Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop
 | `amux_role` | add, list, remove, templates, apply-template, show, path | Manage roles and apply team templates |
 | `amux_list` | -- | List online/offline agents |
 | `amux_send` | -- | Send message to an agent (exceptional, non-task communication; supports response-required tracking) |
+| `amux_discussion` | start, post, show, list, close | Multi-party discussions for retros, brainstorms, design jams |
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_project` | show, set, append, clear, path | Manage project vision/context |
