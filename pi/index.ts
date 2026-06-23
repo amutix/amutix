@@ -131,6 +131,7 @@ import {
   planTaskCommentNotifications,
   planDiscussionNotifications,
 } from "../core/notification-service";
+import { sanitizeBranchName, deriveWorktreePath } from "../core/setup-service";
 import {
   projectContextPath,
   readProjectContext,
@@ -2337,11 +2338,8 @@ export default function (pi: ExtensionAPI) {
     const config = await readSessionConfig(session);
 
     if (wsType === "worktree" && config.mainRepo) {
-      const { basename: bn, dirname: dn } = await import("node:path");
-      const repoName = bn(config.mainRepo);
-      const parentDir = dn(config.mainRepo);
-      const wsPath = `${parentDir}/${repoName}-${sanitizeBranchName(name)}`;
-      const branchName = `agent/${sanitizeBranchName(name)}`;
+      const plan = deriveWorktreePath(config.mainRepo, name);
+      const { wsPath, branchName } = plan;
 
       const result = await pi.exec("git", ["-C", config.mainRepo, "worktree", "add", wsPath, "-b", branchName], { timeout: 30000 });
       if (result.code !== 0) {
