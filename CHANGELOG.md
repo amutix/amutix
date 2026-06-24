@@ -2,19 +2,30 @@
 
 ## Unreleased
 
+No changes yet.
+
+## 1.3.0 (2026-06-24)
+
 ### Added
 
-- `amux_send` supports response-required messages and pending-reply tracking; `brainstorm` messages default to requiring a response.
-- `amux_task archive` moves done items that are no longer needed for ongoing implementation out of the active backlog into `archive/backlog-archive.jsonl`.
-- New projects now get a small default `WOW.md` with sensible team norms for comments, review, waiting/reminders, and learnings.
-- Task comments now notify relevant task subscribers by default, so assignees/participants wake and reassess task state without a separate `amux_send`.
-- `amux_discussion` tool for multi-party team discussions: start, post, show, list, close with participant inbox notifications and compact open-discussions prompt metadata.
-- Task-comment prompt context now injects compact latest substantive discussion previews instead of repeated raw comment bodies.
-- Assignment, task-comment, and discussion notifications now use specific descriptive messages instead of generic state-change nudges.
+- `amux_discussion` for multi-party team discussions: start, post, show, list, and close with participant-aware notifications and compact open-discussions prompt metadata.
+- `amux_send` response-required messages and pending-reply tracking; brainstorm messages now default to requiring a response.
+- `amux_task archive` to move completed backlog items out of the active backlog while preserving archive history.
+- Task comments notify relevant task subscribers by default, so assignees/participants wake and reassess task state without separate direct messages.
+- Lifecycle notification targets for `amux_task` transitions: `notifyTarget` (`none`, `subscribers`, `all`, `agents`) and `notifyAgents` support review/blocker/handoff wake-ups without changing ownership.
+- A pure task transition state-machine seam with centralized transition metadata and side-effect descriptors.
+- Grouped command aliases for the simpler Project/Team/Work mental model: `/amux work`, `/amux work show`, `/amux team`, `/amux project wow`, plus CLI `amux work`, `amux work show`, `amux team`, and `amux project`.
+- A plain-JavaScript npm CLI entrypoint so installed packages can run `amux` from `node_modules/.bin` without relying on Node TypeScript stripping.
+- New projects now get a small default `WOW.md` with team norms for comments, review, waiting/reminders, and learnings.
 
-### Removed
+### Changed
 
-- Removed `/amux context` and `/amux manage` command surfaces from the primary command model. Use `/amux project vision ...` and `/amux new ...` instead.
+- All amux tools now register through framework-neutral `core/tools/*` definitions, making the Pi adapter thinner and reducing duplicated tool wiring.
+- Task list/show defaults now use compact projections; pass `full:true` to retrieve verbose summaries, spec previews, and full comment/activity threads.
+- Prompt context now uses compact journal previews and shorter coordination boilerplate.
+- Assignment, task-comment, discussion, and lifecycle notifications now use shorter descriptive messages with pull-based detail references.
+- `/amux` help and README now present canonical Project, Team, Work, Knowledge, and System surfaces while preserving existing shortcuts.
+- `/amux context` and `/amux manage` are no longer part of the primary command model; use `/amux project vision ...`, `/amux project wow ...`, and `/amux new ...` instead.
 
 ## 1.2.0 (2026-06-22)
 
