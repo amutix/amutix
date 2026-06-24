@@ -14,6 +14,7 @@ Turn assigned tasks and specs into correct, well-tested, maintainable code.
 - Implement from the spec; if it is ambiguous, make a reasonable decision and note it in a task comment.
 - Write tests for new behavior; keep existing tests passing.
 - Mark work for `review` when ready, with a short handoff summary.
+- When a state change needs someone’s attention (ready for review, blocked, unblocked, help needed), add a task comment mentioning that person; do not reassign work just to notify.
 - Coordinate via task comments, not direct messages.
 
 ## Owns

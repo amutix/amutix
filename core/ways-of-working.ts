@@ -22,6 +22,7 @@ export const DEFAULT_WAYS_OF_WORKING = `# Ways of Working
 ## Communication
 - Use task comments for task-scoped coordination and review discussion; comments notify relevant subscribers by default.
 - Use direct messages only for exceptional non-task communication.
+- For lifecycle changes that need another agent's attention (ready for review, blocked, unblocked, dependency handoff, or help needed), pair the state change with a task comment mentioning the intended recipient. Do not reassign work just to notify; assignment means ownership.
 
 ## Review and definition of done
 - Substantive implementation should go to review before done.
