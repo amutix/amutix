@@ -10,8 +10,9 @@
  * to this module. Behavior is preserved — error messages, mutation,
  * reservations, activity entries, and notifications are unchanged.
  *
- * Later slices will add a transition executor that derives activity text,
- * side-effect descriptors, and notification plans from the same table.
+ * SPEC-19 Slice 2: transition definitions also own activity text metadata
+ * and side-effect descriptors (availability/reservation behavior). Services
+ * still execute the effects explicitly; this module remains pure.
  */
 
 import type { BacklogItem } from "./backlog.ts";
@@ -37,6 +38,28 @@ export type NotifyTarget =
   | { mode: "all" }
   | { mode: "agents"; agents: string[] };
 
+export type TaskTransitionActivity =
+  | { type: "assign" }
+  | { type: "pick" }
+  | { type: "review" }
+  | { type: "done" }
+  | { type: "drop" }
+  | { type: "block" };
+
+export type TaskTransitionSideEffect =
+  | { type: "set-availability"; availability: "working"; mode: "always" }
+  | { type: "set-availability"; availability: "idle"; mode: "if-no-active-work" }
+  | { type: "reserve-files"; reason: "task-id-title" }
+  | { type: "release-files" };
+
+/** Values needed to render lifecycle activity text from metadata. */
+export interface TaskTransitionActivityContext {
+  actorName: string;
+  targetName?: string;
+  summary?: string;
+  reason?: string;
+}
+
 /** Who is allowed to perform a transition. */
 export type OwnershipMode = "none" | "assignee" | "assignee-or-reviewer";
 
@@ -59,6 +82,8 @@ export interface TaskTransitionDefinition {
   to: TaskState | "same" | "archive";
   defaultNotify: NotifyTarget;
   ownership: OwnershipMode;
+  activity?: TaskTransitionActivity;
+  sideEffects: TaskTransitionSideEffect[];
 }
 
 // ─── Transition table ────────────────────────────────────────
@@ -75,6 +100,8 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "assigned",
     ownership: "none",
     defaultNotify: { mode: "agents", agents: [] }, // resolved to assignee at runtime
+    activity: { type: "assign" },
+    sideEffects: [],
   },
   // pick — claiming work; assigned tasks require the assignee. Review-state
   // tasks can be picked by any reviewer/agent for changes (existing behavior).
@@ -84,6 +111,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "in-progress",
     ownership: "none",
     defaultNotify: { mode: "none" },
+    activity: { type: "pick" },
+    sideEffects: [
+      { type: "set-availability", availability: "working", mode: "always" },
+      { type: "reserve-files", reason: "task-id-title" },
+    ],
   },
   {
     action: "pick",
@@ -91,6 +123,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "in-progress",
     ownership: "assignee",
     defaultNotify: { mode: "none" },
+    activity: { type: "pick" },
+    sideEffects: [
+      { type: "set-availability", availability: "working", mode: "always" },
+      { type: "reserve-files", reason: "task-id-title" },
+    ],
   },
   // review — only the implementer (assignee) can mark ready
   {
@@ -99,6 +136,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "review",
     ownership: "assignee",
     defaultNotify: { mode: "none" },
+    activity: { type: "review" },
+    sideEffects: [
+      { type: "release-files" },
+      { type: "set-availability", availability: "idle", mode: "if-no-active-work" },
+    ],
   },
   // done — existing simple workflows allow direct completion from any
   // non-done state. Assignee-gated states require the assignee; review allows
@@ -109,6 +151,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "done",
     ownership: "assignee",
     defaultNotify: { mode: "none" },
+    activity: { type: "done" },
+    sideEffects: [
+      { type: "release-files" },
+      { type: "set-availability", availability: "idle", mode: "if-no-active-work" },
+    ],
   },
   {
     action: "done",
@@ -116,6 +163,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "done",
     ownership: "assignee-or-reviewer",
     defaultNotify: { mode: "none" },
+    activity: { type: "done" },
+    sideEffects: [
+      { type: "release-files" },
+      { type: "set-availability", availability: "idle", mode: "if-no-active-work" },
+    ],
   },
   // drop — assignee releases back to queue
   {
@@ -124,6 +176,11 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "todo",
     ownership: "assignee",
     defaultNotify: { mode: "none" },
+    activity: { type: "drop" },
+    sideEffects: [
+      { type: "release-files" },
+      { type: "set-availability", availability: "idle", mode: "if-no-active-work" },
+    ],
   },
   // block — assignee (if assigned) marks or updates blocked state
   {
@@ -132,6 +189,8 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "blocked",
     ownership: "assignee",
     defaultNotify: { mode: "none" },
+    activity: { type: "block" },
+    sideEffects: [],
   },
   // non-status transitions — no lifecycle state change
   {
@@ -140,6 +199,7 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "same",
     ownership: "none",
     defaultNotify: { mode: "subscribers" },
+    sideEffects: [],
   },
   {
     action: "plan",
@@ -147,6 +207,7 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "same",
     ownership: "none",
     defaultNotify: { mode: "none" },
+    sideEffects: [],
   },
   {
     action: "archive",
@@ -154,6 +215,7 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
     to: "archive",
     ownership: "none",
     defaultNotify: { mode: "none" },
+    sideEffects: [],
   },
 ];
 
@@ -187,6 +249,42 @@ export function targetStatus(
   action: TaskTransitionAction,
 ): TaskState | "same" | "archive" {
   return getTaskTransitionDefinition(action, from)?.to ?? "same";
+}
+
+/**
+ * Return the transition definition or throw using the behavior-preserving
+ * status error. Intended for services after validation.
+ */
+export function requireTaskTransitionDefinition(
+  task: BacklogItem,
+  action: TaskTransitionAction,
+): TaskTransitionDefinition {
+  const def = getTaskTransitionDefinition(action, task.status as TaskState);
+  if (!def) throw new Error(statusErrorMessage(task, action));
+  return def;
+}
+
+/** Render lifecycle activity text from a transition's metadata. */
+export function formatTaskTransitionActivity(
+  def: TaskTransitionDefinition,
+  ctx: TaskTransitionActivityContext,
+): string | null {
+  switch (def.activity?.type) {
+    case "assign":
+      return `Assigned to ${ctx.targetName} by ${ctx.actorName}`;
+    case "pick":
+      return `Picked by ${ctx.actorName}`;
+    case "review":
+      return `Ready for review${ctx.summary ? `: ${ctx.summary}` : ""}`;
+    case "done":
+      return `Completed${ctx.summary ? `: ${ctx.summary}` : ""}`;
+    case "drop":
+      return "Dropped — back in queue";
+    case "block":
+      return `Blocked: ${ctx.reason}`;
+    case undefined:
+      return null;
+  }
 }
 
 // ─── Error messages ──────────────────────────────────────────

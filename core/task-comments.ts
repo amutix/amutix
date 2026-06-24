@@ -49,6 +49,15 @@ export function appendTaskComment(
   appendJsonlSync(commentsPath(session, taskId), entry);
 }
 
+/** Append a lifecycle activity record to a task's history. */
+export function appendTaskActivity(
+  session: string,
+  taskId: string,
+  entry: Omit<TaskComment, "type">,
+): void {
+  appendTaskComment(session, taskId, { ...entry, type: "activity" });
+}
+
 /**
  * Read all comments/activity for a task in chronological order.
  * Returns [] if no comments exist yet.

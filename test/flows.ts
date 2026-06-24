@@ -220,6 +220,7 @@ import {
   canTransition,
   targetStatus,
   getTaskTransitionDefinition,
+  formatTaskTransitionActivity,
   assertTaskTransitionAllowed,
   assertTaskTransitionOwnership,
   type TaskState,
@@ -2402,6 +2403,78 @@ describe("Task workflow service", () => {
   });
 });
 
+describe("Task transition side effects (SPEC-19 slice 2)", () => {
+  const session = testSession("transition-side-effects");
+  const devId = newAgentId();
+  const now = new Date().toISOString();
+
+  before(async () => {
+    await registerAgent(session, {
+      id: devId, name: "Dev", session, role: "developer", roleName: "developer",
+      cwd: "/tmp", pid: 1, status: "online", availability: "idle",
+      registeredAt: now, lastHeartbeat: now,
+    });
+  });
+  after(() => cleanupSession(session));
+
+  it("review releases reservations, idles working assignee, and records activity", async () => {
+    const task = await addTask(session, {
+      title: "Review side effects", status: "todo", files: ["review.ts"],
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    const picked = await servicePickTask(session, task.id, devId, "Dev");
+    assert.deepEqual(picked.reserved, ["review.ts"]);
+
+    const result = await serviceReviewTask(session, task.id, devId, "Dev", "Ready for review handoff");
+
+    assert.deepEqual(result.released, ["review.ts"]);
+    assert.equal(result.nowIdle, true);
+    assert.equal((await findById(session, devId))!.availability, "idle");
+    assert.deepEqual(await getReservations(session), {});
+    const comments = readTaskComments(session, task.id);
+    assert.equal(comments.at(-1)!.type, "activity");
+    assert.equal(comments.at(-1)!.text, "Ready for review: Ready for review handoff");
+  });
+
+  it("done releases reservations, idles working assignee, and records completion activity", async () => {
+    const task = await addTask(session, {
+      title: "Done side effects", status: "todo", files: ["done.ts"],
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    await servicePickTask(session, task.id, devId, "Dev");
+
+    const result = await serviceCompleteTask(session, task.id, devId, "Dev", "Completed summary");
+
+    assert.deepEqual(result.released, ["done.ts"]);
+    assert.equal(result.nowIdle, true);
+    assert.equal((await findById(session, devId))!.availability, "idle");
+    assert.deepEqual(await getReservations(session), {});
+    const comments = readTaskComments(session, task.id);
+    assert.equal(comments.at(-1)!.type, "activity");
+    assert.equal(comments.at(-1)!.text, "Completed: Completed summary");
+  });
+
+  it("drop releases reservations, idles working assignee, and records drop activity", async () => {
+    const task = await addTask(session, {
+      title: "Drop side effects", status: "todo", files: ["drop.ts"],
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    await servicePickTask(session, task.id, devId, "Dev");
+
+    const result = await serviceDropTask(session, task.id, devId, "Dev");
+
+    assert.deepEqual(result.released, ["drop.ts"]);
+    assert.equal(result.nowIdle, true);
+    assert.equal(result.task.status, "todo");
+    assert.equal(result.task.assigneeId, undefined);
+    assert.equal((await findById(session, devId))!.availability, "idle");
+    assert.deepEqual(await getReservations(session), {});
+    const comments = readTaskComments(session, task.id);
+    assert.equal(comments.at(-1)!.type, "activity");
+    assert.equal(comments.at(-1)!.text, "Dropped — back in queue");
+  });
+});
+
 describe("Task state machine (SPEC-19 slice 1)", () => {
   // ── canTransition: allowed transitions ──
   it("allows assign from todo, assigned, blocked", () => {
@@ -2487,6 +2560,39 @@ describe("Task state machine (SPEC-19 slice 1)", () => {
     assert.ok(def);
     assert.equal(def!.ownership, "assignee-or-reviewer");
     assert.equal(getTaskTransitionDefinition("done", "done"), null);
+  });
+
+  it("transition definitions own activity metadata and side-effect descriptors", () => {
+    const pick = getTaskTransitionDefinition("pick", "assigned")!;
+    assert.deepEqual(pick.activity, { type: "pick" });
+    assert.deepEqual(pick.sideEffects, [
+      { type: "set-availability", availability: "working", mode: "always" },
+      { type: "reserve-files", reason: "task-id-title" },
+    ]);
+
+    const review = getTaskTransitionDefinition("review", "in-progress")!;
+    assert.deepEqual(review.activity, { type: "review" });
+    assert.deepEqual(review.sideEffects, [
+      { type: "release-files" },
+      { type: "set-availability", availability: "idle", mode: "if-no-active-work" },
+    ]);
+
+    const drop = getTaskTransitionDefinition("drop", "blocked")!;
+    assert.deepEqual(drop.activity, { type: "drop" });
+    assert.deepEqual(drop.sideEffects, review.sideEffects);
+  });
+
+  it("formats activity text from transition metadata", () => {
+    const done = getTaskTransitionDefinition("done", "in-progress")!;
+    assert.equal(
+      formatTaskTransitionActivity(done, { actorName: "Dev", summary: "shipped" }),
+      "Completed: shipped",
+    );
+    const block = getTaskTransitionDefinition("block", "in-progress")!;
+    assert.equal(
+      formatTaskTransitionActivity(block, { actorName: "Dev", reason: "waiting" }),
+      "Blocked: waiting",
+    );
   });
 
   // ── assertTaskTransitionAllowed ──

@@ -19,6 +19,10 @@ import {
 import {
   assertTaskTransitionAllowed,
   assertTaskTransitionOwnership,
+  requireTaskTransitionDefinition,
+  formatTaskTransitionActivity,
+  type TaskTransitionAction,
+  type TaskTransitionDefinition,
 } from "./task-state-machine.ts";
 import {
   reserve,
@@ -32,7 +36,7 @@ import {
   type AgentInfo,
 } from "./registry.ts";
 import {
-  appendTaskComment,
+  appendTaskActivity,
   readTaskComments,
   type TaskComment,
 } from "./task-comments.ts";
@@ -83,6 +87,121 @@ export interface TaskShowData {
   specPreview: string | null;
 }
 
+interface TransitionSideEffectResult {
+  reserved: string[];
+  conflicts: Array<{ path: string; detail: string }>;
+  released: string[];
+  nowIdle: boolean;
+}
+
+function prepareTransition(
+  task: BacklogItem,
+  action: TaskTransitionAction,
+  actorId: string,
+): TaskTransitionDefinition {
+  assertTaskTransitionAllowed(task, action);
+  assertTaskTransitionOwnership(task, action, actorId);
+  return requireTaskTransitionDefinition(task, action);
+}
+
+function applyTransitionTarget(task: BacklogItem, def: TaskTransitionDefinition): void {
+  if (def.to !== "same" && def.to !== "archive") {
+    task.status = def.to;
+  }
+}
+
+function transitionReserveReason(task: BacklogItem, reason: "task-id-title"): string {
+  switch (reason) {
+    case "task-id-title":
+      return `${task.id}: ${task.title}`;
+  }
+}
+
+function appendTransitionActivity(
+  session: string,
+  task: BacklogItem,
+  def: TaskTransitionDefinition,
+  actorId: string,
+  actorName: string,
+  metadata: { targetName?: string; summary?: string; reason?: string } = {},
+): void {
+  const text = formatTaskTransitionActivity(def, { actorName, ...metadata });
+  if (!text) return;
+  appendTaskActivity(session, task.id, {
+    timestamp: task.updatedAt,
+    agent: actorName,
+    agentId: actorId,
+    text,
+  });
+}
+
+async function runTransitionSideEffects(
+  session: string,
+  tasks: BacklogItem[],
+  task: BacklogItem,
+  def: TaskTransitionDefinition,
+  agentId: string,
+  agentName: string,
+): Promise<TransitionSideEffectResult> {
+  const result: TransitionSideEffectResult = {
+    reserved: [],
+    conflicts: [],
+    released: [],
+    nowIdle: false,
+  };
+
+  for (const effect of def.sideEffects) {
+    switch (effect.type) {
+      case "set-availability": {
+        if (effect.mode === "always") {
+          await updateAgent(session, agentId, {
+            availability: effect.availability,
+            availabilityUpdatedAt: new Date().toISOString(),
+          });
+          break;
+        }
+
+        const remainingActive = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === agentId);
+        if (remainingActive.length === 0) {
+          const agent = await findById(session, agentId);
+          if (!agent?.availability || agent.availability === "working") {
+            await updateAgent(session, agentId, {
+              availability: effect.availability,
+              availabilityUpdatedAt: new Date().toISOString(),
+            });
+            result.nowIdle = effect.availability === "idle";
+          }
+        }
+        break;
+      }
+      case "reserve-files": {
+        if (!task.files?.length) break;
+        const online = await getOnlineAgents(session).catch(() => [] as AgentInfo[]);
+        const onlineIds = online.map((a) => a.id);
+        const reserveReason = transitionReserveReason(task, effect.reason);
+
+        for (const filePath of task.files) {
+          try {
+            await reserve(session, [filePath], agentId, agentName, reserveReason, onlineIds);
+            result.reserved.push(filePath);
+          } catch (err) {
+            result.conflicts.push({ path: filePath, detail: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        break;
+      }
+      case "release-files": {
+        if (task.files?.length) {
+          result.released = await release(session, task.files, agentId);
+        }
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
 // ─── Assign ──────────────────────────────────────────────────
 
 /**
@@ -99,17 +218,18 @@ export async function serviceAssignTasks(
 ): Promise<AssignResult> {
   const tasks = await readBacklog(session);
   const toAssign: BacklogItem[] = [];
+  const transitions = new Map<string, TaskTransitionDefinition>();
 
   for (const taskId of taskIds) {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) throw new Error(`Task ${taskId} not found.`);
-    assertTaskTransitionAllowed(task, "assign");
+    transitions.set(task.id, prepareTransition(task, "assign", assignerId));
     toAssign.push(task);
   }
 
   const now = new Date().toISOString();
   for (const task of toAssign) {
-    task.status = "assigned";
+    applyTransitionTarget(task, transitions.get(task.id)!);
     task.assignee = targetName;
     task.assigneeId = targetId;
     task.updatedAt = now;
@@ -118,13 +238,7 @@ export async function serviceAssignTasks(
 
   // Record activity
   for (const task of toAssign) {
-    appendTaskComment(session, task.id, {
-      timestamp: now,
-      agent: assignerName,
-      agentId: assignerId,
-      type: "activity",
-      text: `Assigned to ${targetName} by ${assignerName}`,
-    });
+    appendTransitionActivity(session, task, transitions.get(task.id)!, assignerId, assignerName, { targetName });
   }
 
   // Check attention signal. Stale `working` availability should not suppress
@@ -157,13 +271,13 @@ export async function servicePickTask(
 ): Promise<PickResult> {
   const tasks = await readBacklog(session);
   let task: BacklogItem | undefined;
+  let transition: TaskTransitionDefinition | undefined;
 
   if (taskId) {
     task = tasks.find((t) => t.id === taskId);
     if (!task) throw new Error(`Task ${taskId} not found.`);
 
-    assertTaskTransitionAllowed(task, "pick");
-    assertTaskTransitionOwnership(task, "pick", agentId);
+    transition = prepareTransition(task, "pick", agentId);
 
     const unmet = unmetDependencies(task, tasks);
     if (unmet.length > 0) {
@@ -176,50 +290,22 @@ export async function servicePickTask(
     if (!task) {
       throw new Error("No tasks available to pick. All tasks are assigned, in progress, blocked, done, or waiting on dependencies.");
     }
+    transition = prepareTransition(task, "pick", agentId);
   }
 
   // Claim the task
-  task.status = "in-progress";
+  applyTransitionTarget(task, transition!);
   task.assignee = agentName;
   task.assigneeId = agentId;
   task.blockedReason = undefined;
   task.updatedAt = new Date().toISOString();
   await writeBacklog(session, tasks);
 
-  appendTaskComment(session, task.id, {
-    timestamp: task.updatedAt,
-    agent: agentName,
-    agentId,
-    type: "activity",
-    text: `Picked by ${agentName}`,
-  });
+  appendTransitionActivity(session, task, transition!, agentId, agentName);
 
-  // Auto-set availability to working
-  await updateAgent(session, agentId, {
-    availability: "working",
-    availabilityUpdatedAt: new Date().toISOString(),
-  });
+  const effects = await runTransitionSideEffects(session, tasks, task, transition!, agentId, agentName);
 
-  // Auto-reserve files
-  const reserved: string[] = [];
-  const conflicts: Array<{ path: string; detail: string }> = [];
-
-  if (task.files?.length) {
-    const online = await getOnlineAgents(session).catch(() => [] as AgentInfo[]);
-    const onlineIds = online.map((a) => a.id);
-    const reserveReason = `${task.id}: ${task.title}`;
-
-    for (const filePath of task.files) {
-      try {
-        await reserve(session, [filePath], agentId, agentName, reserveReason, onlineIds);
-        reserved.push(filePath);
-      } catch (err) {
-        conflicts.push({ path: filePath, detail: err instanceof Error ? err.message : String(err) });
-      }
-    }
-  }
-
-  return { task, reserved, conflicts };
+  return { task, reserved: effects.reserved, conflicts: effects.conflicts };
 }
 
 // ─── Done ────────────────────────────────────────────────────
@@ -237,41 +323,19 @@ export async function serviceCompleteTask(
   const tasks = await readBacklog(session);
   const task = tasks.find((t) => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found.`);
-  assertTaskTransitionAllowed(task, "done");
-  assertTaskTransitionOwnership(task, "done", agentId);
+  const transition = prepareTransition(task, "done", agentId);
 
-  task.status = "done";
+  applyTransitionTarget(task, transition);
   task.completedAt = new Date().toISOString();
   task.updatedAt = new Date().toISOString();
   if (summary) task.summary = summary;
   await writeBacklog(session, tasks);
 
-  appendTaskComment(session, task.id, {
-    timestamp: task.updatedAt,
-    agent: agentName,
-    agentId,
-    type: "activity",
-    text: `Completed${summary ? `: ${summary}` : ""}`,
-  });
+  appendTransitionActivity(session, task, transition, agentId, agentName, { summary });
 
-  // Auto-release file reservations
-  let released: string[] = [];
-  if (task.files?.length) {
-    released = await release(session, task.files, agentId);
-  }
+  const effects = await runTransitionSideEffects(session, tasks, task, transition, agentId, agentName);
 
-  // Check if agent should transition to idle
-  const remainingActive = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === agentId);
-  let nowIdle = false;
-  if (remainingActive.length === 0) {
-    const agent = await findById(session, agentId);
-    if (!agent?.availability || agent.availability === "working") {
-      await updateAgent(session, agentId, { availability: "idle", availabilityUpdatedAt: new Date().toISOString() });
-      nowIdle = true;
-    }
-  }
-
-  return { task, released, nowIdle };
+  return { task, released: effects.released, nowIdle: effects.nowIdle };
 }
 
 // ─── Review ──────────────────────────────────────────────────
@@ -289,38 +353,18 @@ export async function serviceReviewTask(
   const tasks = await readBacklog(session);
   const task = tasks.find((t) => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found.`);
-  assertTaskTransitionAllowed(task, "review");
-  assertTaskTransitionOwnership(task, "review", agentId);
+  const transition = prepareTransition(task, "review", agentId);
 
-  task.status = "review";
+  applyTransitionTarget(task, transition);
   task.updatedAt = new Date().toISOString();
   if (summary) task.summary = summary;
   await writeBacklog(session, tasks);
 
-  appendTaskComment(session, task.id, {
-    timestamp: task.updatedAt,
-    agent: agentName,
-    agentId,
-    type: "activity",
-    text: `Ready for review${summary ? `: ${summary}` : ""}`,
-  });
+  appendTransitionActivity(session, task, transition, agentId, agentName, { summary });
 
-  let released: string[] = [];
-  if (task.files?.length) {
-    released = await release(session, task.files, agentId);
-  }
+  const effects = await runTransitionSideEffects(session, tasks, task, transition, agentId, agentName);
 
-  const remainingActive = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === agentId);
-  let nowIdle = false;
-  if (remainingActive.length === 0) {
-    const agent = await findById(session, agentId);
-    if (!agent?.availability || agent.availability === "working") {
-      await updateAgent(session, agentId, { availability: "idle", availabilityUpdatedAt: new Date().toISOString() });
-      nowIdle = true;
-    }
-  }
-
-  return { task, released, nowIdle };
+  return { task, released: effects.released, nowIdle: effects.nowIdle };
 }
 
 // ─── Drop ────────────────────────────────────────────────────
@@ -337,40 +381,20 @@ export async function serviceDropTask(
   const tasks = await readBacklog(session);
   const task = tasks.find((t) => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found.`);
-  assertTaskTransitionAllowed(task, "drop");
-  assertTaskTransitionOwnership(task, "drop", agentId);
+  const transition = prepareTransition(task, "drop", agentId);
 
-  task.status = "todo";
+  applyTransitionTarget(task, transition);
   task.assignee = undefined;
   task.assigneeId = undefined;
   task.blockedReason = undefined;
   task.updatedAt = new Date().toISOString();
   await writeBacklog(session, tasks);
 
-  appendTaskComment(session, task.id, {
-    timestamp: task.updatedAt,
-    agent: agentName,
-    agentId,
-    type: "activity",
-    text: `Dropped \u2014 back in queue`,
-  });
+  appendTransitionActivity(session, task, transition, agentId, agentName);
 
-  let released: string[] = [];
-  if (task.files?.length) {
-    released = await release(session, task.files, agentId);
-  }
+  const effects = await runTransitionSideEffects(session, tasks, task, transition, agentId, agentName);
 
-  const remainingActive = tasks.filter((t) => t.status === "in-progress" && t.assigneeId === agentId);
-  let nowIdle = false;
-  if (remainingActive.length === 0) {
-    const agent = await findById(session, agentId);
-    if (!agent?.availability || agent.availability === "working") {
-      await updateAgent(session, agentId, { availability: "idle", availabilityUpdatedAt: new Date().toISOString() });
-      nowIdle = true;
-    }
-  }
-
-  return { task, released, nowIdle };
+  return { task, released: effects.released, nowIdle: effects.nowIdle };
 }
 
 // ─── Block ───────────────────────────────────────────────────
@@ -388,21 +412,14 @@ export async function serviceBlockTask(
   const tasks = await readBacklog(session);
   const task = tasks.find((t) => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found.`);
-  assertTaskTransitionAllowed(task, "block");
-  assertTaskTransitionOwnership(task, "block", agentId);
+  const transition = prepareTransition(task, "block", agentId);
 
-  task.status = "blocked";
+  applyTransitionTarget(task, transition);
   task.blockedReason = reason;
   task.updatedAt = new Date().toISOString();
   await writeBacklog(session, tasks);
 
-  appendTaskComment(session, task.id, {
-    timestamp: task.updatedAt,
-    agent: agentName,
-    agentId,
-    type: "activity",
-    text: `Blocked: ${reason}`,
-  });
+  appendTransitionActivity(session, task, transition, agentId, agentName, { reason });
 
   return { task };
 }
