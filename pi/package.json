@@ -1,9 +1,0 @@
-{
-  "name": "@amutix/pi",
-  "version": "2.0.0",
-  "description": "amutix Pi extension",
-  "type": "module",
-  "pi": {
-    "extensions": ["./index.ts"]
-  }
-}
