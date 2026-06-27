@@ -1,15 +1,15 @@
 /**
  * Neutral communication and discussion tools.
  *
- * Migrates `amux_send`, `amux_broadcast`, and `amux_discussion` out of the Pi
+ * Migrates `amutix_send`, `amutix_broadcast`, and `amutix_discussion` out of the Pi
  * adapter. These tools carry delivery side effects (inbox writes, attention
  * flags, notification plans) but every effect is expressible through core
  * messaging/registry/notification functions plus the neutral context's sender
  * identity — no framework-specific capabilities are required.
  *
  * Delivery semantics preserved:
- *   - responseRequired / inReplyTo pending-reply tracking (amux_send)
- *   - discussion audience / notify / silent behavior (amux_discussion)
+ *   - responseRequired / inReplyTo pending-reply tracking (amutix_send)
+ *   - discussion audience / notify / silent behavior (amutix_discussion)
  *   - notification planning + delivery via core notification-service
  */
 
@@ -51,9 +51,9 @@ import {
   type NotificationSender,
 } from "../notification-service.ts";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   enumProp,
   objectSchema,
   optionalBoolProp,
@@ -61,7 +61,7 @@ import {
   stringProp,
 } from "./types.ts";
 
-// ─── amux_send ───────────────────────────────────────────────
+// ─── amutix_send ───────────────────────────────────────────────
 
 interface SendParams {
   to: string;
@@ -73,23 +73,24 @@ interface SendParams {
 }
 
 /** Build the NotificationSender from the neutral tool context. */
-function senderFromContext(ctx: AmuxToolContext): NotificationSender {
+function senderFromContext(ctx: AmutixToolContext): NotificationSender {
   return { id: ctx.agentId, name: ctx.agentName, roleName: ctx.roleName, session: ctx.session };
 }
 
-export const sendTool: AmuxToolDefinition<SendParams> = {
-  name: "amux_send",
+export const sendTool: AmutixToolDefinition<SendParams> = {
+  name: "amutix_send",
+  aliases: ["amux_send"],
   label: "Send to Agent",
   description:
     'Send a message to another amux agent. Use "name" for same-session or "session/name" for cross-session. ' +
     "Delivered to the agent's inbox  -- works even if they're busy or offline. " +
-    "For task-related discussion, prefer amux_task comment instead.",
+    "For task-related discussion, prefer amutix_task comment instead.",
   promptSnippet: "Send a message to a amux agent by name or session/name address",
   promptGuidelines: [
-    "Use amux_send only for exceptional general communication not tied to a backlog item.",
-    "For task-related discussion, use amux_task comment instead  -- comments stay on the task.",
-    'For cross-session agents, use the full address in amux_send: "session/name".',
-    "After using amux_send, do not wait  -- continue with your own work unless you need their response first.",
+    "Use amutix_send only for exceptional general communication not tied to a backlog item.",
+    "For task-related discussion, use amutix_task comment instead  -- comments stay on the task.",
+    'For cross-session agents, use the full address in amutix_send: "session/name".',
+    "After using amutix_send, do not wait  -- continue with your own work unless you need their response first.",
     "Set responseRequired when you need a reply; brainstorm messages default to responseRequired unless explicitly set false. Reply to response-required messages with inReplyTo.",
   ],
   inputSchema: objectSchema(
@@ -164,19 +165,20 @@ export const sendTool: AmuxToolDefinition<SendParams> = {
   },
 };
 
-// ─── amux_broadcast ──────────────────────────────────────────
+// ─── amutix_broadcast ──────────────────────────────────────────
 
 interface BroadcastParams {
   message: string;
   allSessions?: boolean;
 }
 
-export const broadcastTool: AmuxToolDefinition<BroadcastParams> = {
-  name: "amux_broadcast",
+export const broadcastTool: AmutixToolDefinition<BroadcastParams> = {
+  name: "amutix_broadcast",
+  aliases: ["amux_broadcast"],
   label: "Broadcast",
   description:
     "Send a message to all other online agents. Set allSessions=true for cross-session. " +
-    "Use sparingly  -- prefer targeted amux_send.",
+    "Use sparingly  -- prefer targeted amutix_send.",
   promptSnippet: "Broadcast a message to online amux agents",
   inputSchema: objectSchema(
     {
@@ -223,7 +225,7 @@ export const broadcastTool: AmuxToolDefinition<BroadcastParams> = {
   },
 };
 
-// ─── amux_discussion ─────────────────────────────────────────
+// ─── amutix_discussion ─────────────────────────────────────────
 
 const DISCUSSION_ACTIONS = ["start", "post", "show", "list", "close"] as const;
 const DISCUSSION_KINDS = ["discussion", "retro", "brainstorm", "design", "sync", "channel"] as const;
@@ -242,19 +244,20 @@ interface DiscussionParams {
   silent?: boolean;
 }
 
-export const discussionTool: AmuxToolDefinition<DiscussionParams> = {
-  name: "amux_discussion",
+export const discussionTool: AmutixToolDefinition<DiscussionParams> = {
+  name: "amutix_discussion",
+  aliases: ["amux_discussion"],
   label: "Multi-Party Discussions",
   description:
     "Start, post to, show, list, and close team discussions. " +
     "Discussions are for cross-cutting topics (retros, brainstorms, design, sync) " +
-    "— not task-scoped work. For task-related discussion, use amux_task comment instead. " +
-    "For 1:1 exceptional communication, use amux_send.",
+    "— not task-scoped work. For task-related discussion, use amutix_task comment instead. " +
+    "For 1:1 exceptional communication, use amutix_send.",
   promptSnippet: "Start or contribute to team discussions (start, post, show, list, close)",
   promptGuidelines: [
-    "Use amux_discussion for team-wide topics: retros, brainstorms, design reviews, syncs.",
+    "Use amutix_discussion for team-wide topics: retros, brainstorms, design reviews, syncs.",
     "Use audience='all' for whole-team discussions and audience='agents' with participants for focused groups; audience controls notifications, not access control.",
-    "Use amux_task comment for task-scoped discussion — discussions are NOT a replacement.",
+    "Use amutix_task comment for task-scoped discussion — discussions are NOT a replacement.",
     "Post to existing discussions rather than starting duplicates.",
     "Close discussions with a summary of outcomes rather than leaving them open indefinitely.",
   ],
@@ -365,7 +368,7 @@ export const discussionTool: AmuxToolDefinition<DiscussionParams> = {
         const summaries = listDiscussions(ctx.session);
         if (summaries.length === 0) {
           return {
-            text: "No discussions yet. Use amux_discussion start to create one.",
+            text: "No discussions yet. Use amutix_discussion start to create one.",
             details: { summaries: [] },
           };
         }

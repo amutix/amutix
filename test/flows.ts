@@ -75,8 +75,9 @@ import {
   type PromptContextAgent,
 } from "../core/prompt-context.ts";
 import {
-  allAmuxTools,
-  getAmuxTool,
+  allAmutixTools,
+  getAmutixTool,
+  normalizeToolName,
   artifactsTool,
   listTool,
   projectTool,
@@ -90,7 +91,7 @@ import {
   taskTool,
   objectSchema,
   optionalBoolProp,
-  type AmuxToolContext,
+  type AmutixToolContext,
 } from "../core/tools/index.ts";
 import {
   startDiscussion,
@@ -1275,23 +1276,23 @@ describe("Task assignment semantics", () => {
     assert.equal(result.name, "Agent");
   });
 
-  // Ownership rules documented for the Pi adapter (amux_task tool).
+  // Ownership rules documented for the Pi adapter (amutix_task tool).
   // Core backlog operations are data-level and do not enforce ownership;
   // ownership is enforced at the adapter layer.
   //
   // Manual verification steps:
   //
   // Cross-session assignment rejection:
-  //   amux_task({ action: "assign", id: "TASK-01", to: "other-session/Agent" })
+  //   amutix_task({ action: "assign", id: "TASK-01", to: "other-session/Agent" })
   //   → "Cross-session task assignment is not supported"
   //
   // Assignee-only operations (done/drop/block):
   //   1. Assign TASK-01 to AgentA
-  //   2. As AgentB, try: amux_task({ action: "done", id: "TASK-01" })
+  //   2. As AgentB, try: amutix_task({ action: "done", id: "TASK-01" })
   //      → "Only the assignee can mark it done"
-  //   3. As AgentB, try: amux_task({ action: "drop", id: "TASK-01" })
+  //   3. As AgentB, try: amutix_task({ action: "drop", id: "TASK-01" })
   //      → "Only the assignee can drop it"
-  //   4. As AgentB, try: amux_task({ action: "block", id: "TASK-01", reason: "..." })
+  //   4. As AgentB, try: amutix_task({ action: "block", id: "TASK-01", reason: "..." })
   //      → "Only the assignee can block it"
   //   5. As AgentA, all three actions should succeed
 
@@ -1890,13 +1891,13 @@ describe("Progress summary data patterns", () => {
   // Manual test for /amux progress:
   //   1. /amux join a project with mixed backlog
   //   2. /amux progress → see status counts, active, review, blocked, next, done
-  //   3. amux_task({ action: "summary" }) → same compact view
+  //   3. amutix_task({ action: "summary" }) → same compact view
   //   4. Verify parent items show with indented children and [N/M] counts
   //
   // Manual test for parentId validation fix:
-  //   amux_task({ action: "add", title: "Child", parentId: "TASK-01" })
+  //   amutix_task({ action: "add", title: "Child", parentId: "TASK-01" })
   //   → should succeed if TASK-01 exists (previously threw getTask is not defined)
-  //   amux_task({ action: "add", title: "Child", parentId: "NONEXISTENT" })
+  //   amutix_task({ action: "add", title: "Child", parentId: "NONEXISTENT" })
   //   → should fail with "Parent item NONEXISTENT not found"
 
   it("parent/child grouping supports hierarchical progress rendering", async () => {
@@ -2109,13 +2110,13 @@ describe("Task spec helpers", () => {
   });
 
   // Manual test for plan/edit-plan actions:
-  //   1. amux_task({ action: "plan", id: "TASK-01" })
+  //   1. amutix_task({ action: "plan", id: "TASK-01" })
   //      → creates tasks/TASK-01.md with default template, links specPath
-  //   2. amux_task({ action: "plan", id: "TASK-01", content: "# Custom" })
+  //   2. amutix_task({ action: "plan", id: "TASK-01", content: "# Custom" })
   //      → updates spec content
-  //   3. amux_task({ action: "edit-plan", id: "TASK-01" })
+  //   3. amutix_task({ action: "edit-plan", id: "TASK-01" })
   //      → returns path for read/edit tools; creates if missing
-  //   4. amux_task({ action: "show", id: "TASK-01" })
+  //   4. amutix_task({ action: "show", id: "TASK-01" })
   //      → shows parent context + spec preview
 });
 
@@ -2973,7 +2974,7 @@ describe("Prompt assembly", () => {
 
   it("COMMON_PRINCIPLES contains the collaboration contract", () => {
     assert.ok(COMMON_PRINCIPLES.includes("State is the source of truth"));
-    assert.ok(COMMON_PRINCIPLES.includes("amux_task comment"));
+    assert.ok(COMMON_PRINCIPLES.includes("amutix_task comment"));
     assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
     assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
   });
@@ -3063,28 +3064,34 @@ describe("Prompt context gatherer", () => {
 });
 
 describe("Neutral tool registry (SPEC-18)", () => {
-  it("allAmuxTools lists migrated tools and registry lookups resolve", () => {
-    const tools = allAmuxTools();
+  it("allAmutixTools lists migrated tools and registry lookups resolve (canonical + legacy aliases)", () => {
+    const tools = allAmutixTools();
     const names = tools.map((t) => t.name);
-    assert.ok(names.includes("amux_artifacts"));
-    assert.ok(names.includes("amux_list"));
-    assert.ok(names.includes("amux_project"));
-    assert.ok(names.includes("amux_wow"));
-    assert.ok(names.includes("amux_send"));
-    assert.ok(names.includes("amux_broadcast"));
-    assert.ok(names.includes("amux_discussion"));
-    assert.ok(names.includes("amux_role"));
-    assert.ok(names.includes("amux_reserve"));
-    assert.ok(names.includes("amux_journal"));
-    assert.equal(getAmuxTool("amux_list")!.name, "amux_list");
-    assert.equal(getAmuxTool("amux_project")!.name, "amux_project");
-    assert.equal(getAmuxTool("amux_wow")!.name, "amux_wow");
-    assert.equal(getAmuxTool("amux_send")!.name, "amux_send");
-    assert.equal(getAmuxTool("amux_discussion")!.name, "amux_discussion");
-    assert.equal(getAmuxTool("amux_role")!.name, "amux_role");
-    assert.equal(getAmuxTool("amux_reserve")!.name, "amux_reserve");
-    assert.equal(getAmuxTool("amux_journal")!.name, "amux_journal");
-    assert.equal(getAmuxTool("nonexistent"), undefined);
+    assert.ok(names.includes("amutix_artifacts"));
+    assert.ok(names.includes("amutix_list"));
+    assert.ok(names.includes("amutix_project"));
+    assert.ok(names.includes("amutix_wow"));
+    assert.ok(names.includes("amutix_send"));
+    assert.ok(names.includes("amutix_broadcast"));
+    assert.ok(names.includes("amutix_discussion"));
+    assert.ok(names.includes("amutix_role"));
+    assert.ok(names.includes("amutix_reserve"));
+    assert.ok(names.includes("amutix_journal"));
+    // Canonical name lookups resolve to canonical name
+    assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
+    assert.equal(getAmutixTool("amutix_project")!.name, "amutix_project");
+    assert.equal(getAmutixTool("amutix_wow")!.name, "amutix_wow");
+    assert.equal(getAmutixTool("amutix_send")!.name, "amutix_send");
+    assert.equal(getAmutixTool("amutix_discussion")!.name, "amutix_discussion");
+    assert.equal(getAmutixTool("amutix_role")!.name, "amutix_role");
+    assert.equal(getAmutixTool("amutix_reserve")!.name, "amutix_reserve");
+    assert.equal(getAmutixTool("amutix_journal")!.name, "amutix_journal");
+    // Legacy alias names resolve to canonical name (back-compat, removed in 3.0)
+    assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
+    assert.equal(getAmutixTool("amutix_task")!.name, "amutix_task");
+    assert.equal(normalizeToolName("amutix_role"), "amutix_role");
+    assert.equal(normalizeToolName("amutix_role"), "amutix_role");
+    assert.equal(getAmutixTool("nonexistent"), undefined);
   });
 
   it("neutral schema descriptors produce plain JSON Schema shapes", () => {
@@ -3101,41 +3108,41 @@ describe("Neutral tool registry (SPEC-18)", () => {
   });
 
   it("migrated tools carry stable metadata (name/label/description/schema)", () => {
-    assert.equal(artifactsTool.name, "amux_artifacts");
+    assert.equal(artifactsTool.name, "amutix_artifacts");
     assert.equal(artifactsTool.label, "List Artifacts");
     assert.deepEqual(artifactsTool.inputSchema, { type: "object", properties: {}, required: [] });
 
-    assert.equal(listTool.name, "amux_list");
+    assert.equal(listTool.name, "amutix_list");
     assert.equal(listTool.label, "List Agents");
     assert.deepEqual(listTool.inputSchema.required, []);
     assert.equal(listTool.inputSchema.properties.allSessions.type, "boolean");
     assert.ok(listTool.description.includes("allSessions=true"));
 
-    assert.equal(projectTool.name, "amux_project");
+    assert.equal(projectTool.name, "amutix_project");
     assert.equal(projectTool.label, "Project Vision/Context");
     assert.deepEqual(projectTool.inputSchema.required, ["action"]);
     assert.deepEqual(projectTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
     assert.ok(projectTool.promptGuidelines?.some((g) => g.includes("project vision/context")));
 
-    assert.equal(wowTool.name, "amux_wow");
+    assert.equal(wowTool.name, "amutix_wow");
     assert.equal(wowTool.label, "Ways of Working");
     assert.deepEqual(wowTool.inputSchema.required, ["action"]);
     assert.deepEqual(wowTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
     assert.ok(wowTool.promptGuidelines?.some((g) => g.includes("team collaboration norms")));
 
     // Communication tools (Slice 3)
-    assert.equal(sendTool.name, "amux_send");
+    assert.equal(sendTool.name, "amutix_send");
     assert.equal(sendTool.label, "Send to Agent");
     assert.deepEqual(sendTool.inputSchema.required, ["to", "message"]);
     assert.deepEqual(sendTool.inputSchema.properties.category.enum, ["urgent", "fyi", "brainstorm"]);
     assert.ok(sendTool.inputSchema.properties.responseRequired);
     assert.ok(sendTool.inputSchema.properties.inReplyTo);
 
-    assert.equal(broadcastTool.name, "amux_broadcast");
+    assert.equal(broadcastTool.name, "amutix_broadcast");
     assert.deepEqual(broadcastTool.inputSchema.required, ["message"]);
     assert.equal(broadcastTool.inputSchema.properties.allSessions.type, "boolean");
 
-    assert.equal(discussionTool.name, "amux_discussion");
+    assert.equal(discussionTool.name, "amutix_discussion");
     assert.deepEqual(discussionTool.inputSchema.required, ["action"]);
     assert.deepEqual(discussionTool.inputSchema.properties.action.enum, ["start", "post", "show", "list", "close"]);
     assert.equal(discussionTool.inputSchema.properties.participants.type, "array");
@@ -3143,22 +3150,22 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.ok(discussionTool.promptGuidelines?.some((g) => g.includes("retros, brainstorms")));
 
     // Coordination tools (Slice 4)
-    assert.equal(roleTool.name, "amux_role");
+    assert.equal(roleTool.name, "amutix_role");
     assert.deepEqual(roleTool.inputSchema.required, ["action"]);
     assert.deepEqual(roleTool.inputSchema.properties.action.enum, ["add", "list", "remove", "templates", "apply-template", "show", "path"]);
     assert.ok(roleTool.promptGuidelines?.some((g) => g.includes("apply-template")));
 
-    assert.equal(reserveTool.name, "amux_reserve");
+    assert.equal(reserveTool.name, "amutix_reserve");
     assert.deepEqual(reserveTool.inputSchema.required, ["action"]);
     assert.deepEqual(reserveTool.inputSchema.properties.action.enum, ["claim", "release", "list"]);
     assert.equal(reserveTool.inputSchema.properties.paths.type, "array");
 
-    assert.equal(journalTool.name, "amux_journal");
+    assert.equal(journalTool.name, "amutix_journal");
     assert.deepEqual(journalTool.inputSchema.required, ["action"]);
     assert.deepEqual(journalTool.inputSchema.properties.action.enum, ["add", "list"]);
     assert.deepEqual(journalTool.inputSchema.properties.type.enum, ["decision", "learning", "progress"]);
 
-    assert.equal(taskTool.name, "amux_task");
+    assert.equal(taskTool.name, "amutix_task");
     assert.deepEqual(taskTool.inputSchema.properties.notifyTarget.enum, ["none", "subscribers", "all", "agents"]);
     assert.equal(taskTool.inputSchema.properties.notifyAgents.type, "array");
     assert.equal(taskTool.inputSchema.properties.full.type, "boolean");
@@ -3168,7 +3175,7 @@ describe("Neutral tool registry (SPEC-18)", () => {
 describe("Neutral tool handlers (SPEC-18 pilot)", () => {
   const session = testSession("neutraltools");
   const agentId = newAgentId();
-  const ctx: AmuxToolContext = {
+  const ctx: AmutixToolContext = {
     session,
     agentId,
     agentName: "NeutralAgent",
@@ -3176,7 +3183,7 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
   };
 
   before(async () => {
-    // Two online agents so amux_list has something to render.
+    // Two online agents so amutix_list has something to render.
     await registerAgent(session, {
       id: agentId,
       name: "NeutralAgent",
@@ -3204,14 +3211,14 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
   });
   after(() => cleanupSession(session));
 
-  it("amux_artifacts lists project and private artifact dirs (empty when none)", async () => {
+  it("amutix_artifacts lists project and private artifact dirs (empty when none)", async () => {
     const result = await artifactsTool.execute(ctx, {});
     assert.ok(result.text.includes("Project ("));
     assert.ok(result.text.includes("Private ("));
     assert.ok(result.text.includes("(empty)"));
   });
 
-  it("amux_list renders online same-session agents grouped by session", async () => {
+  it("amutix_list renders online same-session agents grouped by session", async () => {
     const result = await listTool.execute(ctx, {});
     assert.ok(result.text.includes("Session: "));
     assert.ok(result.text.includes("(current)"));
@@ -3219,16 +3226,16 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     assert.deepEqual((result.details as { agents: unknown[] }).agents.length, 2);
   });
 
-  it("amux_list reports no agents online when none are registered (other session)", async () => {
-    const emptyCtx: AmuxToolContext = { ...ctx, session: testSession("neutraltools-empty") };
+  it("amutix_list reports no agents online when none are registered (other session)", async () => {
+    const emptyCtx: AmutixToolContext = { ...ctx, session: testSession("neutraltools-empty") };
     const result = await listTool.execute(emptyCtx, {});
     assert.equal(result.text, "No agents online.");
     assert.deepEqual((result.details as { agents: unknown[] }).agents, []);
   });
 
-  it("amux_project neutral handler preserves show/set/append/path/clear behavior", async () => {
+  it("amutix_project neutral handler preserves show/set/append/path/clear behavior", async () => {
     const empty = await projectTool.execute(ctx, { action: "show" });
-    assert.equal(empty.text, "No project vision/context set. Use amux_project action=set to create one.");
+    assert.equal(empty.text, "No project vision/context set. Use amutix_project action=set to create one.");
     assert.deepEqual((empty.details as { content: string | null }).content, null);
 
     const set = await projectTool.execute(ctx, { action: "set", content: "North star" });
@@ -3248,9 +3255,9 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     assert.equal((clear.details as { content: string }).content, "");
   });
 
-  it("amux_wow neutral handler preserves show/set/append/path/clear behavior", async () => {
+  it("amutix_wow neutral handler preserves show/set/append/path/clear behavior", async () => {
     const empty = await wowTool.execute(ctx, { action: "show" });
-    assert.equal(empty.text, "No Ways of Working set. Use amux_wow action=set to create one.");
+    assert.equal(empty.text, "No Ways of Working set. Use amutix_wow action=set to create one.");
     assert.deepEqual((empty.details as { content: string | null }).content, null);
 
     const set = await wowTool.execute(ctx, { action: "set", content: "Review before done" });
@@ -3270,7 +3277,7 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     assert.equal((clear.details as { content: string }).content, "");
   });
 
-  it("amux_role neutral handler preserves add/list/show/path/remove behavior", async () => {
+  it("amutix_role neutral handler preserves add/list/show/path/remove behavior", async () => {
     const add = await roleTool.execute(ctx, { action: "add", name: "observer", instructions: "Watch for drift" });
     assert.equal(add.text, 'Role "observer" added. Agents can join with: /amux join');
 
@@ -3289,7 +3296,7 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     assert.equal(remove.text, 'Role "observer" removed.');
   });
 
-  it("amux_reserve neutral handler preserves claim/list/release behavior", async () => {
+  it("amutix_reserve neutral handler preserves claim/list/release behavior", async () => {
     const claim = await reserveTool.execute(ctx, { action: "claim", paths: ["src/"], reason: "TASK-99" });
     assert.ok(claim.text.includes("Reserved 1 path(s) (TASK-99):"));
     assert.ok(claim.text.includes("✓ src/"));
@@ -3302,7 +3309,7 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     assert.equal(releaseResult.text, "Released 1 reservation(s):\n  ✓ src/");
   });
 
-  it("amux_journal neutral handler preserves add/list behavior", async () => {
+  it("amutix_journal neutral handler preserves add/list behavior", async () => {
     const add = await journalTool.execute(ctx, {
       action: "add",
       type: "decision",
@@ -3322,7 +3329,7 @@ describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
   const session = testSession("commtools");
   const senderId = newAgentId();
   const teammateId = newAgentId();
-  const senderCtx: AmuxToolContext = {
+  const senderCtx: AmutixToolContext = {
     session,
     agentId: senderId,
     agentName: "Sender",
@@ -3343,7 +3350,7 @@ describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
   });
   after(() => cleanupSession(session));
 
-  it("amux_send delivers to inbox and creates pending reply when responseRequired", async () => {
+  it("amutix_send delivers to inbox and creates pending reply when responseRequired", async () => {
     const result = await sendTool.execute(senderCtx, {
       to: "Teammate", message: "please review", category: "fyi", responseRequired: true,
     });
@@ -3354,16 +3361,16 @@ describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
     assert.ok(details.targetId, teammateId);
   });
 
-  it("amux_send rejects self-send", async () => {
+  it("amutix_send rejects self-send", async () => {
     await assert.rejects(
       sendTool.execute(senderCtx, { to: "Sender", message: "hi" }),
       /Cannot send a message to yourself/,
     );
   });
 
-  it("amux_send marks inReplyTo pending reply as replied", async () => {
+  it("amutix_send marks inReplyTo pending reply as replied", async () => {
     // Teammate sends a response-required message to Sender, creating a pending reply
-    const teammateCtx: AmuxToolContext = { ...senderCtx, agentId: teammateId, agentName: "Teammate" };
+    const teammateCtx: AmutixToolContext = { ...senderCtx, agentId: teammateId, agentName: "Teammate" };
     await sendTool.execute(teammateCtx, {
       to: "Sender", message: "need input", category: "brainstorm",
     });
@@ -3377,14 +3384,14 @@ describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
     assert.ok(reply.text.includes("Marked pending reply"));
   });
 
-  it("amux_broadcast sends to all other online agents", async () => {
+  it("amutix_broadcast sends to all other online agents", async () => {
     const result = await broadcastTool.execute(senderCtx, { message: "team sync" });
     assert.ok(result.text.includes("Broadcast sent to 1 agent"));
     assert.ok(result.text.includes("Teammate"));
     assert.deepEqual((result.details as { recipients: string[] }).recipients.length, 1);
   });
 
-  it("amux_broadcast throws when no other agents online", async () => {
+  it("amutix_broadcast throws when no other agents online", async () => {
     const lonelySession = testSession("commtools-lonely");
     const lonelyId = newAgentId();
     await registerAgent(lonelySession, {
@@ -3392,7 +3399,7 @@ describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
       cwd: "/tmp", pid: 0, status: "online",
       registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
     });
-    const lonelyCtx: AmuxToolContext = { session: lonelySession, agentId: lonelyId, agentName: "Lonely" };
+    const lonelyCtx: AmutixToolContext = { session: lonelySession, agentId: lonelyId, agentName: "Lonely" };
     await assert.rejects(
       broadcastTool.execute(lonelyCtx, { message: "hello?" }),
       /No other agents online/,
@@ -3405,7 +3412,7 @@ describe("Neutral discussion tool (SPEC-18 Slice 3)", () => {
   const session = testSession("disctools");
   const authorId = newAgentId();
   const participantId = newAgentId();
-  const authorCtx: AmuxToolContext = {
+  const authorCtx: AmutixToolContext = {
     session,
     agentId: authorId,
     agentName: "Author",
@@ -3498,8 +3505,8 @@ describe("Neutral task tool (SPEC-18 Slice 5)", () => {
   const session = testSession("tasktool");
   const devId = newAgentId();
   const leadId = newAgentId();
-  const devCtx: AmuxToolContext = { session, agentId: devId, agentName: "Dev", roleName: "developer" };
-  const leadCtx: AmuxToolContext = { session, agentId: leadId, agentName: "Lead", roleName: "lead-architect" };
+  const devCtx: AmutixToolContext = { session, agentId: devId, agentName: "Dev", roleName: "developer" };
+  const leadCtx: AmutixToolContext = { session, agentId: leadId, agentName: "Lead", roleName: "lead-architect" };
   let taskId = "";
   let assignedId = "";
 
@@ -4444,11 +4451,11 @@ describe("Task transition notification targets (SPEC-19 slice 3)", () => {
   });
 });
 
-describe("amux_task transition notifications (SPEC-19 slice 3)", () => {
+describe("amutix_task transition notifications (SPEC-19 slice 3)", () => {
   const session = testSession("transition-tool");
   let devId: string;
   let reviewerId: string;
-  let devCtx: AmuxToolContext;
+  let devCtx: AmutixToolContext;
 
   before(async () => {
     devId = newAgentId();

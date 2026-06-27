@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * amux CLI release entrypoint.
+ * amutix CLI release entrypoint.
  *
  * This file is plain JavaScript because current Node type stripping does not
  * load TypeScript files from node_modules. The source-oriented TypeScript CLI
@@ -12,9 +12,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 function sessionsDir() {
-  if (process.env.AMUX_SESSIONS_DIR) return process.env.AMUX_SESSIONS_DIR;
-  if (process.env.AMUX_HOME) return join(process.env.AMUX_HOME, "sessions");
-  return join(homedir(), ".amux", "sessions");
+  if (process.env.AMUTIX_SESSIONS_DIR) return process.env.AMUTIX_SESSIONS_DIR;
+  if (process.env.AMUX_SESSIONS_DIR) return process.env.AMUX_SESSIONS_DIR; // legacy alias
+  if (process.env.AMUTIX_HOME) return join(process.env.AMUTIX_HOME, "sessions");
+  if (process.env.AMUX_HOME) return join(process.env.AMUX_HOME, "sessions"); // legacy alias
+  const canonical = join(homedir(), ".amutix", "sessions");
+  if (existsSync(canonical)) return canonical;
+  return join(homedir(), ".amux", "sessions"); // legacy read-fallback (pre-2.0)
 }
 
 function sessionFile(session, ...parts) {
@@ -77,7 +81,7 @@ function die(message) {
 }
 
 function printHelp() {
-  console.log(`amux — Agent Multiplexer CLI (read-only)\n\nUsage: amux <command> [--session <name>]\n\nCommands:\n  work                  Project progress overview\n  work show <ITEM-ID>   Item details with comments and spec preview\n  team                  Agents and availability\n  project               Project vision/WoW/role overview\n  list                  Backlog listing\n  task list             Backlog listing (explicit task namespace)\n  progress              Alias for work\n  show <ITEM-ID>        Alias for work show\n  status                Alias for team\n  help                  Show this help\n\nOptions:\n  --session, -s <name>  Session/project name (auto-detected if only one)\n\nFor full interactive workflows: use the Pi extension.\nDocumentation: https://github.com/amutix/amux`);
+  console.log(`amutix — Coordination CLI for AI agent teams (read-only)\n\nUsage: amutix <command> [--session <name>]\n\nCommands:\n  work                  Project progress overview\n  work show <ITEM-ID>   Item details with comments and spec preview\n  team                  Agents and availability\n  project               Project vision/WoW/role overview\n  list                  Backlog listing\n  task list             Backlog listing (explicit task namespace)\n  progress              Alias for work\n  show <ITEM-ID>        Alias for work show\n  status                Alias for team\n  help                  Show this help\n\nOptions:\n  --session, -s <name>  Session/project name (auto-detected if only one)\n\nFor full interactive workflows: use the Pi extension.\nDocumentation: https://github.com/amutix/amux`);
 }
 
 function readBacklog(session) {
@@ -199,25 +203,25 @@ switch (cmd) {
     const sub = cmd === "work" ? positional[1] : undefined;
     if (sub === "show") {
       const id = positional[2];
-      if (!id) die("Usage: amux work show <ITEM-ID> [--session <name>]");
+      if (!id) die("Usage: amutix work show <ITEM-ID> [--session <name>]");
       console.log(renderShow(s, id));
     } else if (!sub || sub === "summary" || sub === "progress") {
       console.log(renderProgress(s, readBacklog(s)));
     } else {
-      die("Usage: amux work [show <ITEM-ID>] [--session <name>]");
+      die("Usage: amutix work [show <ITEM-ID>] [--session <name>]");
     }
     break;
   }
   case "show": {
     const s = requireSession();
     const id = positional[1];
-    if (!id) die("Usage: amux show <ITEM-ID> [--session <name>]");
+    if (!id) die("Usage: amutix show <ITEM-ID> [--session <name>]");
     console.log(renderShow(s, id));
     break;
   }
   case "list":
   case "task": {
-    if (cmd === "task" && positional[1] !== "list") die("Usage: amux task list [--session <name>]");
+    if (cmd === "task" && positional[1] !== "list") die("Usage: amutix task list [--session <name>]");
     console.log(renderList(readBacklog(requireSession())));
     break;
   }
@@ -229,5 +233,5 @@ switch (cmd) {
     console.log(renderProject(requireSession()));
     break;
   default:
-    die(`amux: unknown command "${cmd}". Run "amux --help" for usage.`);
+    die(`amutix: unknown command "${cmd}". Run "amutix --help" for usage.`);
 }

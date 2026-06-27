@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --experimental-strip-types
 /**
- * amux CLI — Agent Multiplexer command-line interface
+ * amutix CLI — coordination layer for AI agent teams
  *
  * Phase 1: read-only commands using shared core services/renderers.
  * For full interactive and mutation workflows, use the Pi extension.
@@ -61,9 +61,9 @@ async function requireSession(): Promise<string> {
 }
 
 function printHelp(): void {
-  console.log(`amux — Agent Multiplexer CLI (phase 1: read-only)
+  console.log(`amutix — Coordination CLI for AI agent teams (phase 1: read-only)
 
-Usage: amux <command> [--session <name>]
+Usage: amutix <command> [--session <name>]
 
 Commands:
   work                  Project progress overview
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       if (sub === "show") {
         const itemId = positional[2];
         if (!itemId) {
-          console.error("Usage: amux work show <ITEM-ID> [--session <name>]");
+          console.error("Usage: amutix work show <ITEM-ID> [--session <name>]");
           process.exit(1);
         }
         const data = await serviceGetTaskShowData(s, itemId);
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
         break;
       }
       if (sub && sub !== "summary" && sub !== "progress") {
-        console.error('Usage: amux work [show <ITEM-ID>] [--session <name>]');
+        console.error('Usage: amutix work [show <ITEM-ID>] [--session <name>]');
         process.exit(1);
       }
       const tasks = await readBacklog(s);
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
       const s = await requireSession();
       const itemId = positional[1];
       if (!itemId) {
-        console.error("Usage: amux show <ITEM-ID> [--session <name>]");
+        console.error("Usage: amutix show <ITEM-ID> [--session <name>]");
         process.exit(1);
       }
       const data = await serviceGetTaskShowData(s, itemId);
@@ -143,7 +143,7 @@ async function main(): Promise<void> {
     case "list":
     case "task": {
       if (cmd === "task" && positional[1] !== "list") {
-        console.error('Usage: amux task list [--session <name>]');
+        console.error('Usage: amutix task list [--session <name>]');
         process.exit(1);
       }
       const s = await requireSession();
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
     }
 
     default:
-      console.error(`amux: unknown command "${cmd}". Run "amux --help" for usage.`);
+      console.error(`amutix: unknown command "${cmd}". Run "amutix --help" for usage.`);
       process.exit(1);
   }
 }

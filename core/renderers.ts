@@ -117,7 +117,7 @@ export function renderAgentPresence(
 
 /**
  * Render a single backlog item as a compact list row.
- * Used by `amux_task list`.
+ * Used by `amutix_task list`.
  */
 export interface RenderTaskListRowOptions {
   /** Include verbose done/review summaries. Default false to keep lists projection-sized. */
@@ -175,7 +175,7 @@ export interface RenderTaskOptions {
 
 /**
  * Render full task details with metadata, spec preview, and comments.
- * Used by `amux_task show`.
+ * Used by `amutix_task show`.
  */
 export function renderTaskDetails(
   task: BacklogItem,
@@ -225,7 +225,7 @@ export function renderTaskDetails(
     if (options.full && options.specPreview) {
       text += `\n\n${options.specPreview}`;
     } else if (!options.full && options.specPreview) {
-      text += `\nSpec preview hidden in compact view. Use amux_task show with full:true for the full preview.`;
+      text += `\nSpec preview hidden in compact view. Use amutix_task show with full:true for the full preview.`;
     }
   }
 
@@ -253,10 +253,10 @@ export function renderTaskDetails(
         const last = activity.at(-1)!;
         text += `\nActivity: ${activity.length} lifecycle event${activity.length !== 1 ? "s" : ""}; last ${formatTimestamp(last.timestamp)}: ${truncatePreview(last.text, 120)}`;
       }
-      text += `\nFull thread: amux_task show ${task.id} full:true`;
+      text += `\nFull thread: amutix_task show ${task.id} full:true`;
     }
   } else {
-    text += `\n\nNo comments yet. Use amux_task with action "comment" to add one.`;
+    text += `\n\nNo comments yet. Use amutix_task with action "comment" to add one.`;
   }
 
   return text;
@@ -266,7 +266,7 @@ export function renderTaskDetails(
 
 /**
  * Render a compact hierarchical progress summary.
- * Used by `amux_task summary` and `/amux progress`.
+ * Used by `amutix_task summary` and `/amux progress`.
  */
 export function renderProgressSummary(
   session: string,

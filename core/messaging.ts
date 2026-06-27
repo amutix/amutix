@@ -216,16 +216,16 @@ export function taskCommentNotificationMessage(args: {
 }): string {
   const title = args.taskTitle ? ` (${args.taskTitle})` : "";
   const preview = messagePreview(args.preview, 180);
-  return `Comment on ${args.taskId}${title} by ${args.authorName}: “${preview}”\nDetails if needed: amux_task show ${args.taskId} (full:true for thread).`;
+  return `Comment on ${args.taskId}${title} by ${args.authorName}: “${preview}”\nDetails if needed: amutix_task show ${args.taskId} (full:true for thread).`;
 }
 
 export function assignmentNotificationMessage(tasks: Array<{ id: string; title: string }>): string {
   if (tasks.length === 1) {
     const task = tasks[0]!;
-    return `Assigned: ${task.id} — ${task.title}\nStart: amux_task pick ${task.id}; details: amux_task show ${task.id}.`;
+    return `Assigned: ${task.id} — ${task.title}\nStart: amutix_task pick ${task.id}; details: amutix_task show ${task.id}.`;
   }
   const lines = tasks.map((task) => `- ${task.id}: ${task.title}`).join("\n");
-  return `Assigned ${tasks.length} tasks:\n${lines}\nStart next: amux_task pick; overview: amux_task summary.`;
+  return `Assigned ${tasks.length} tasks:\n${lines}\nStart next: amutix_task pick; overview: amutix_task summary.`;
 }
 
 /** Phrasing for each lifecycle transition in a notification. */
@@ -254,7 +254,7 @@ export function transitionNotificationMessage(args: {
   const title = args.taskTitle ? ` (${args.taskTitle})` : "";
   const detail = args.preview ? `: ${messagePreview(args.preview, 200)}` : "";
   const verb = TRANSITION_VERBS[args.action];
-  return `${args.taskId}${title} ${verb} by ${args.authorName}${detail}\nDetails if needed: amux_task show ${args.taskId} (full:true for thread).`;
+  return `${args.taskId}${title} ${verb} by ${args.authorName}${detail}\nDetails if needed: amutix_task show ${args.taskId} (full:true for thread).`;
 }
 
 export function discussionNotificationMessage(args: {
@@ -265,14 +265,14 @@ export function discussionNotificationMessage(args: {
   preview?: string;
 }): string {
   if (args.action === "started") {
-    return `Discussion ${args.discussionId} started by ${args.authorName}: “${messagePreview(args.topic, 180)}”\nDetails: amux_discussion show ${args.discussionId}.`;
+    return `Discussion ${args.discussionId} started by ${args.authorName}: “${messagePreview(args.topic, 180)}”\nDetails: amutix_discussion show ${args.discussionId}.`;
   }
   if (args.action === "closed") {
     const summary = args.preview ? ` Summary: “${messagePreview(args.preview, 180)}”` : "";
-    return `Discussion ${args.discussionId} closed by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${summary}\nOutcome: amux_discussion show ${args.discussionId}.`;
+    return `Discussion ${args.discussionId} closed by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${summary}\nOutcome: amutix_discussion show ${args.discussionId}.`;
   }
   const preview = args.preview ? ` “${messagePreview(args.preview, 180)}”` : "";
-  return `Discussion ${args.discussionId} post by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${preview}\nDetails if needed: amux_discussion show ${args.discussionId}.`;
+  return `Discussion ${args.discussionId} post by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${preview}\nDetails if needed: amutix_discussion show ${args.discussionId}.`;
 }
 
 export async function createPendingReply(

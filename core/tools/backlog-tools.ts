@@ -1,10 +1,10 @@
 /**
  * Neutral backlog management tool.
  *
- * Migrates the large `amux_task` tool out of the Pi adapter. This is the
+ * Migrates the large `amutix_task` tool out of the Pi adapter. This is the
  * highest-risk migration (13 actions, lifecycle ownership rules, reservation
  * side effects, notification delivery). All handler logic moved verbatim;
- * only identity access changed (Pi closures → AmuxToolContext fields).
+ * only identity access changed (Pi closures → AmutixToolContext fields).
  *
  * Behavior is preserved exactly — this slice does not redesign lifecycle
  * semantics (state-machine work is a separate follow-up).
@@ -47,9 +47,9 @@ import {
   type NotificationSender,
 } from "../notification-service.ts";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   enumProp,
   objectSchema,
   optionalBoolProp,
@@ -103,7 +103,7 @@ interface TaskParams {
 }
 
 /** Build the NotificationSender from the neutral tool context. */
-function senderFromContext(ctx: AmuxToolContext): NotificationSender {
+function senderFromContext(ctx: AmutixToolContext): NotificationSender {
   return { id: ctx.agentId, name: ctx.agentName, roleName: ctx.roleName, session: ctx.session };
 }
 
@@ -114,7 +114,7 @@ function senderFromContext(ctx: AmuxToolContext): NotificationSender {
  * task comments have their own notification paths and do not use this helper.
  */
 async function maybeNotifyTransition(
-  ctx: AmuxToolContext,
+  ctx: AmutixToolContext,
   task: BacklogItem,
   action: LifecycleTransitionAction,
   p: TaskParams,
@@ -141,7 +141,7 @@ async function maybeNotifyTransition(
 
 // ─── Action helpers ──────────────────────────────────────────
 
-async function executeAdd(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeAdd(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.title) throw new Error("Title is required for add.");
   const now = new Date().toISOString();
   if (p.parentId) {
@@ -171,7 +171,7 @@ async function executeAdd(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxTool
   };
 }
 
-async function executeList(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeList(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   const tasks = await readBacklog(ctx.session);
   let filtered = tasks;
   if (p.status) {
@@ -194,7 +194,7 @@ async function executeList(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   };
 }
 
-async function executeShow(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeShow(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for show.");
   const data = await serviceGetTaskShowData(ctx.session, p.id);
   const full = p.full === true;
@@ -215,7 +215,7 @@ async function executeShow(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   };
 }
 
-async function executeComment(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeComment(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for comment.");
   if (!p.content) throw new Error("Comment text is required (pass content parameter).");
   const task = await getTask(ctx.session, p.id);
@@ -243,7 +243,7 @@ async function executeComment(ctx: AmuxToolContext, p: TaskParams): Promise<Amux
   };
 }
 
-async function executePlan(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executePlan(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for plan.");
   const task = await getTask(ctx.session, p.id);
   if (!task) throw new Error(`Task ${p.id} not found.`);
@@ -256,7 +256,7 @@ async function executePlan(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   };
 }
 
-async function executeEditPlan(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeEditPlan(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for edit-plan.");
   const task = await getTask(ctx.session, p.id);
   if (!task) throw new Error(`Task ${p.id} not found.`);
@@ -267,13 +267,13 @@ async function executeEditPlan(ctx: AmuxToolContext, p: TaskParams): Promise<Amu
   };
 }
 
-async function executeSummary(ctx: AmuxToolContext): Promise<AmuxToolResult> {
+async function executeSummary(ctx: AmutixToolContext): Promise<AmutixToolResult> {
   const tasks = await readBacklog(ctx.session);
   const summary = renderProgressSummary(ctx.session, tasks);
   return { text: summary, details: {} };
 }
 
-async function executeArchive(ctx: AmuxToolContext): Promise<AmuxToolResult> {
+async function executeArchive(ctx: AmutixToolContext): Promise<AmutixToolResult> {
   const result = await archiveDoneTasks(ctx.session);
   const archivedIds = result.archived.map((t) => t.id).join(", ") || "none";
   const skippedText = result.skipped.length > 0
@@ -285,7 +285,7 @@ async function executeArchive(ctx: AmuxToolContext): Promise<AmuxToolResult> {
   };
 }
 
-async function executeAssign(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeAssign(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID(s) required for assign (comma-separated for batch).");
   if (!p.to) throw new Error("Target agent name is required for assign.");
   const { session: targetSession } = parseAddress(p.to, ctx.session);
@@ -309,12 +309,12 @@ async function executeAssign(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxT
   }
   const assignedIds = result.assigned.map((t) => t.id).join(", ");
   return {
-    text: `Assigned ${assignedIds} to ${target.name}. Task state updated; visible via amux_task show.`,
+    text: `Assigned ${assignedIds} to ${target.name}. Task state updated; visible via amutix_task show.`,
     details: { tasks: result.assigned },
   };
 }
 
-async function executePick(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executePick(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   const pickResult = await servicePickTask(ctx.session, p.id || undefined, ctx.agentId, ctx.agentName);
   let pickText = `\u2713 Picked ${pickResult.task.id}: ${pickResult.task.title}`;
   if (p.reason) pickText += `\n  Approach: ${p.reason}`;
@@ -327,7 +327,7 @@ async function executePick(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   return { text: pickText, details: pickResult };
 }
 
-async function executeReview(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeReview(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for review.");
   const reviewResult = await serviceReviewTask(ctx.session, p.id, ctx.agentId, ctx.agentName, p.summary);
   let reviewText = `◇ Ready for review ${reviewResult.task.id}: ${reviewResult.task.title}`;
@@ -343,7 +343,7 @@ async function executeReview(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxT
   return { text: reviewText, details: reviewResult };
 }
 
-async function executeDone(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeDone(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for done.");
   const doneResult = await serviceCompleteTask(ctx.session, p.id, ctx.agentId, ctx.agentName, p.summary);
   let doneText = `\u2713 Completed ${doneResult.task.id}: ${doneResult.task.title}`;
@@ -354,7 +354,7 @@ async function executeDone(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   return { text: doneText, details: doneResult };
 }
 
-async function executeDrop(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeDrop(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for drop.");
   const dropResult = await serviceDropTask(ctx.session, p.id, ctx.agentId, ctx.agentName);
   let dropText = `\u2713 Dropped ${dropResult.task.id}: ${dropResult.task.title}  -- back in queue`;
@@ -364,7 +364,7 @@ async function executeDrop(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   return { text: dropText, details: dropResult };
 }
 
-async function executeBlock(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
+async function executeBlock(ctx: AmutixToolContext, p: TaskParams): Promise<AmutixToolResult> {
   if (!p.id) throw new Error("Task ID is required for block.");
   if (!p.reason) throw new Error("Reason is required for block.");
   const blockResult = await serviceBlockTask(ctx.session, p.id, ctx.agentId, ctx.agentName, p.reason);
@@ -376,8 +376,9 @@ async function executeBlock(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxTo
 
 // ─── Tool definition ─────────────────────────────────────────
 
-export const taskTool: AmuxToolDefinition<TaskParams> = {
-  name: "amux_task",
+export const taskTool: AmutixToolDefinition<TaskParams> = {
+  name: "amutix_task",
+  aliases: ["amux_task"],
   label: "Task Backlog",
   description:
     "Manage the task backlog. Actions: add (create task), list (show tasks), " +
@@ -397,13 +398,13 @@ export const taskTool: AmuxToolDefinition<TaskParams> = {
     "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking",
     "Create and review high-level initiatives/milestones and their children before assigning executable child work.",
     "It is OK to assign all defined leaf work up front; use dependsOn to enforce order, and assignees should pick one item at a time after completing the current item.",
-    "When working on a child item, inspect its parent context with amux_task show before picking or implementing.",
+    "When working on a child item, inspect its parent context with amutix_task show before picking or implementing.",
     "Use dependsOn when adding an item that should wait for other items to complete.",
     "Pass comma-separated IDs to assign multiple items in one state update.",
     "Only the assignee can review/drop/block an assigned item; review items can be completed by a reviewer.",
     "Use 'show' for a compact task projection by default; pass full:true only when you need full spec preview and complete comment/activity history.",
     "Use 'plan' and 'edit-plan' for first-class task-linked specs/checklists instead of ad-hoc project artifacts.",
-    "Use 'comment' for task-scoped discussion  -- prefer over amux_send for task-related topics. Comments notify relevant task subscribers by default; set notify:false or silent:true for quiet notes.",
+    "Use 'comment' for task-scoped discussion  -- prefer over amutix_send for task-related topics. Comments notify relevant task subscribers by default; set notify:false or silent:true for quiet notes.",
     "Use 'archive' to move done items that are no longer needed for ongoing implementation out of the active backlog.",
   ],
   inputSchema: objectSchema(

@@ -1,7 +1,7 @@
 /**
  * Neutral project artifact management tools.
  *
- * Migrates `amux_project` and `amux_wow` out of the Pi adapter while keeping
+ * Migrates `amutix_project` and `amutix_wow` out of the Pi adapter while keeping
  * slash commands in Pi. These tools manage project-scoped prompt artifacts:
  * CONTEXT.md and WOW.md.
  */
@@ -21,9 +21,9 @@ import {
   wowPath,
 } from "../ways-of-working.ts";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   enumProp,
   objectSchema,
   optionalStringProp,
@@ -51,10 +51,10 @@ interface ManagedArtifactToolConfig {
 }
 
 async function executeManagedArtifactTool(
-  ctx: AmuxToolContext,
+  ctx: AmutixToolContext,
   params: ManagedArtifactParams,
   config: ManagedArtifactToolConfig,
-): Promise<AmuxToolResult> {
+): Promise<AmutixToolResult> {
   switch (params.action) {
     case "show": {
       const content = config.read(ctx.session);
@@ -98,10 +98,11 @@ function managedArtifactSchema(contentDescription: string) {
   );
 }
 
-// ─── amux_project ────────────────────────────────────────────
+// ─── amutix_project ────────────────────────────────────────────
 
-export const projectTool: AmuxToolDefinition<ManagedArtifactParams> = {
-  name: "amux_project",
+export const projectTool: AmutixToolDefinition<ManagedArtifactParams> = {
+  name: "amutix_project",
+  aliases: ["amux_project"],
   label: "Project Vision/Context",
   description:
     "Manage the current project's vision/context alignment artifact. " +
@@ -109,14 +110,14 @@ export const projectTool: AmuxToolDefinition<ManagedArtifactParams> = {
     "and injected into future agent prompts.",
   promptSnippet: "Manage project vision/context (show, set, append, clear, path)",
   promptGuidelines: [
-    "Use amux_project to set a project vision/context during setup before assigning work.",
-    "Prefer amux_project over directly editing CONTEXT.md; the file is an implementation detail.",
+    "Use amutix_project to set a project vision/context during setup before assigning work.",
+    "Prefer amutix_project over directly editing CONTEXT.md; the file is an implementation detail.",
     "Keep project context concise: goal, constraints, working principles, and north star.",
   ],
   inputSchema: managedArtifactSchema("Project vision/context text (required for set and append)"),
   execute(ctx, params) {
     return executeManagedArtifactTool(ctx, params, {
-      emptyText: "No project vision/context set. Use amux_project action=set to create one.",
+      emptyText: "No project vision/context set. Use amutix_project action=set to create one.",
       showHeader: "Project vision/context",
       setText: "Project vision/context set. Changes affect future agent prompts.",
       appendText: "Appended to project vision/context. Changes affect future agent prompts.",
@@ -130,10 +131,11 @@ export const projectTool: AmuxToolDefinition<ManagedArtifactParams> = {
   },
 };
 
-// ─── amux_wow ────────────────────────────────────────────────
+// ─── amutix_wow ────────────────────────────────────────────────
 
-export const wowTool: AmuxToolDefinition<ManagedArtifactParams> = {
-  name: "amux_wow",
+export const wowTool: AmutixToolDefinition<ManagedArtifactParams> = {
+  name: "amutix_wow",
+  aliases: ["amux_wow"],
   label: "Ways of Working",
   description:
     "Manage the team's Ways of Working artifact. " +
@@ -141,14 +143,14 @@ export const wowTool: AmuxToolDefinition<ManagedArtifactParams> = {
     "and injected into future agent prompts after common principles.",
   promptSnippet: "Manage team Ways of Working (show, set, append, clear, path)",
   promptGuidelines: [
-    "Use amux_wow to define team collaboration norms (review policy, communication, definition of done).",
+    "Use amutix_wow to define team collaboration norms (review policy, communication, definition of done).",
     "WoW extends the built-in common principles with project-specific norms.",
     "Keep WoW concise — it is prompt-injected into every agent turn.",
   ],
   inputSchema: managedArtifactSchema("WoW text (required for set and append)"),
   execute(ctx, params) {
     return executeManagedArtifactTool(ctx, params, {
-      emptyText: "No Ways of Working set. Use amux_wow action=set to create one.",
+      emptyText: "No Ways of Working set. Use amutix_wow action=set to create one.",
       showHeader: "Ways of Working",
       setText: "Ways of Working set. Changes affect future agent prompts.",
       appendText: "Appended to Ways of Working. Changes affect future agent prompts.",

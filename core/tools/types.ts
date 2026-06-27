@@ -69,7 +69,7 @@ export function objectSchema(
 // ─── Tool definition, context, and result ────────────────────
 
 /** Framework-independent execution capabilities supplied by adapters. */
-export interface AmuxToolContext {
+export interface AmutixToolContext {
   session: string;
   agentId: string;
   agentName: string;
@@ -87,7 +87,7 @@ export interface AmuxToolContext {
 }
 
 /** Framework-neutral tool result. Adapters wrap this into their own shape. */
-export interface AmuxToolResult {
+export interface AmutixToolResult {
   text: string;
   details?: unknown;
 }
@@ -97,12 +97,20 @@ export interface AmuxToolResult {
  * adapter bridge. `execute` receives the neutral context + parsed params and
  * returns a neutral result.
  */
-export interface AmuxToolDefinition<P = Record<string, unknown>> {
+export interface AmutixToolDefinition<P = Record<string, unknown>> {
+  /** Canonical tool name (e.g. "amutix_task"). */
   name: string;
+  /**
+   * Deprecated alias names that resolve to this same tool (e.g. "amux_task").
+   * Honored by the neutral registry lookup for back-compat; not registered as
+   * separate host tools (to keep the model-facing tool surface compact).
+   * Aliases are removed in 3.0.
+   */
+  aliases?: string[];
   label: string;
   description: string;
   promptSnippet?: string;
   promptGuidelines?: string[];
   inputSchema: JsonSchemaObject;
-  execute(ctx: AmuxToolContext, params: P): Promise<AmuxToolResult>;
+  execute(ctx: AmutixToolContext, params: P): Promise<AmutixToolResult>;
 }

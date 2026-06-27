@@ -1,16 +1,23 @@
 /**
- * amux — Shared Storage Layer
+ * amutix — Shared Storage Layer
  *
  * Single source of truth for session directory resolution and atomic file I/O.
  * All core modules import path helpers and I/O functions from here.
  *
  * Session root priority:
- *   1. AMUX_SESSIONS_DIR  — explicit sessions directory path
- *   2. AMUX_HOME/sessions — custom amux home with /sessions appended
- *   3. ~/.amux/sessions   — default
+ *   1. AMUTIX_SESSIONS_DIR  — explicit sessions directory path (canonical)
+ *   2. AMUX_SESSIONS_DIR    — deprecated alias for AMUTIX_SESSIONS_DIR
+ *   3. AMUTIX_HOME/sessions — custom amutix home with /sessions appended
+ *   4. AMUX_HOME/sessions   — deprecated alias for AMUTIX_HOME
+ *   5. ~/.amutix/sessions   — default (created on first write)
+ *   6. ~/.amux/sessions     — legacy read-fallback (only when ~/.amutix absent)
  *
  * Environment variables are read on every call so tests and embedders
  * can override the root at any point before calling core functions.
+ *
+ * Back-compat: pre-2.0 sessions under ~/.amux remain readable until the user
+ * migrates. New sessions are always created under ~/.amutix. No automatic
+ * copy or move of legacy data is performed.
  */
 
 import { readFile, writeFile, rename, mkdir, readdir, open, stat, unlink } from "node:fs/promises";
@@ -22,21 +29,36 @@ import { randomBytes } from "node:crypto";
 // ─── Session Root Resolution ────────────────────────────────
 
 /**
- * Resolve the amux sessions directory.
+ * Resolve the amutix sessions directory.
  *
  * Reads environment variables on every call so callers can
- * set `AMUX_SESSIONS_DIR` or `AMUX_HOME` before invoking
- * any core function (useful for tests and embedded usage).
+ * set `AMUTIX_SESSIONS_DIR` (or legacy `AMUX_SESSIONS_DIR`) /
+ * `AMUTIX_HOME` (or legacy `AMUX_HOME`) before invoking any core
+ * function (useful for tests and embedded usage).
  *
  * Priority:
- *   1. AMUX_SESSIONS_DIR  — full path to sessions directory
- *   2. AMUX_HOME/sessions — custom amux home root
- *   3. ~/.amux/sessions   — default
+ *   1. AMUTIX_SESSIONS_DIR  — full path to sessions directory
+ *   2. AMUX_SESSIONS_DIR    — deprecated alias (full path)
+ *   3. AMUTIX_HOME/sessions — custom amutix home root
+ *   4. AMUX_HOME/sessions   — deprecated alias (home root)
+ *   5. ~/.amutix/sessions   — default (created on first write)
+ *   6. ~/.amux/sessions     — legacy read-fallback (only when ~/.amutix absent)
+ *
+ * Legacy AMUX_* env vars are honored for back-compat but are deprecated;
+ * prefer the AMUTIX_* spellings going forward.
  */
 export function getSessionsDir(): string {
+  if (process.env.AMUTIX_SESSIONS_DIR) return process.env.AMUTIX_SESSIONS_DIR;
   if (process.env.AMUX_SESSIONS_DIR) return process.env.AMUX_SESSIONS_DIR;
+  if (process.env.AMUTIX_HOME) return join(process.env.AMUTIX_HOME, "sessions");
   if (process.env.AMUX_HOME) return join(process.env.AMUX_HOME, "sessions");
-  return join(homedir(), ".amux", "sessions");
+  const amutixHome = join(homedir(), ".amutix", "sessions");
+  // Legacy read-fallback: use ~/.amux only when ~/.amutix does not yet exist.
+  // This keeps pre-2.0 sessions readable without an automatic, potentially
+  // surprising data migration. Once ~/.amutix exists, it is authoritative.
+  const legacyAmuxHome = join(homedir(), ".amux", "sessions");
+  if (!existsSync(amutixHome) && existsSync(legacyAmuxHome)) return legacyAmuxHome;
+  return amutixHome;
 }
 
 /** Get the directory path for a specific session. */

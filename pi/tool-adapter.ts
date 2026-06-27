@@ -1,22 +1,22 @@
 /**
  * Pi adapter bridge for the neutral tool registry.
  *
- * Converts framework-neutral AmuxToolDefinition objects into Pi's
+ * Converts framework-neutral AmutixToolDefinition objects into Pi's
  * `registerTool` shape and registers them in a loop. This is the only place
  * that knows about Pi/TypeBox; core tool definitions stay framework-neutral.
  *
  * Conversion responsibilities:
  *  - neutral JSON Schema -> Pi TypeBox parameter schema
  *  - neutral { text, details } -> Pi { content: [{type:"text",text}], details }
- *  - build AmuxToolContext from Pi session state
+ *  - build AmutixToolContext from Pi session state
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, StringEnum } from "@earendil-works/pi-ai";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   type JsonSchemaObject,
   type JsonSchemaProperty,
 } from "../core/tools/index.ts";
@@ -74,7 +74,7 @@ export function neutralSchemaToTypeBox(schema: JsonSchemaObject): TypeBoxSchema 
 // ─── Neutral result -> Pi result ─────────────────────────────
 
 /** Wrap a neutral tool result into Pi's content shape. */
-export function neutralResultToPi(result: AmuxToolResult): {
+export function neutralResultToPi(result: AmutixToolResult): {
   content: { type: "text"; text: string }[];
   details?: unknown;
 } {
@@ -85,7 +85,7 @@ export function neutralResultToPi(result: AmuxToolResult): {
 
 // ─── Context + registration ──────────────────────────────────
 
-/** Inputs needed to build a neutral AmuxToolContext from Pi session state. */
+/** Inputs needed to build a neutral AmutixToolContext from Pi session state. */
 export interface PiToolContextInputs {
   session: string;
   agentId: string;
@@ -95,9 +95,9 @@ export interface PiToolContextInputs {
   exec?: ExtensionAPI["exec"];
 }
 
-/** Build a neutral AmuxToolContext from Pi session inputs. */
-export function buildAmuxToolContext(inputs: PiToolContextInputs): AmuxToolContext {
-  const ctx: AmuxToolContext = {
+/** Build a neutral AmutixToolContext from Pi session inputs. */
+export function buildAmutixToolContext(inputs: PiToolContextInputs): AmutixToolContext {
+  const ctx: AmutixToolContext = {
     session: inputs.session,
     agentId: inputs.agentId,
     agentName: inputs.agentName,
@@ -117,10 +117,10 @@ export function buildAmuxToolContext(inputs: PiToolContextInputs): AmuxToolConte
  * The caller supplies a function to build the per-invocation context (so the
  * freshest Pi session state is used for each tool call).
  */
-export function registerAmuxTool(
+export function registerAmutixTool(
   pi: ExtensionAPI,
-  tool: AmuxToolDefinition,
-  getContext: () => AmuxToolContext,
+  tool: AmutixToolDefinition,
+  getContext: () => AmutixToolContext,
 ): void {
   const parameters = neutralSchemaToTypeBox(tool.inputSchema);
   pi.registerTool({
@@ -138,15 +138,22 @@ export function registerAmuxTool(
 }
 
 /**
- * Register every neutral amux tool with Pi. The context builder is called on
+ * Register every neutral amutix tool with Pi. The context builder is called on
  * each invocation so tools always see the current joined-agent state.
  */
-export function registerAmuxTools(
+export function registerAmutixTools(
   pi: ExtensionAPI,
-  tools: AmuxToolDefinition[],
-  getContext: () => AmuxToolContext,
+  tools: AmutixToolDefinition[],
+  getContext: () => AmutixToolContext,
 ): void {
   for (const tool of tools) {
-    registerAmuxTool(pi, tool, getContext);
+    registerAmutixTool(pi, tool, getContext);
   }
 }
+
+/** @deprecated Use {@link registerAmutixTool}. Removed in 3.0. */
+export const registerAmuxTool = registerAmutixTool;
+/** @deprecated Use {@link registerAmutixTools}. Removed in 3.0. */
+export const registerAmuxTools = registerAmutixTools;
+/** @deprecated Use {@link buildAmutixToolContext}. Removed in 3.0. */
+export const buildAmuxToolContext = buildAmutixToolContext;

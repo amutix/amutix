@@ -2,8 +2,8 @@
  * Pilot neutral tool definitions.
  *
  * The first two stateless/read-mostly tools migrated to the neutral registry
- * (SPEC-18 Slice 1): `amux_artifacts` and `amux_list`. They validate the
- * neutral AmuxToolDefinition shape end-to-end before larger tools migrate.
+ * (SPEC-18 Slice 1): `amutix_artifacts` and `amutix_list`. They validate the
+ * neutral AmutixToolDefinition shape end-to-end before larger tools migrate.
  */
 
 import { readdirSync } from "node:fs";
@@ -19,9 +19,9 @@ import { projectArtifactsPath } from "../project-context.ts";
 import { sessionFile } from "../storage.ts";
 import { renderAgentPresence } from "../renderers.ts";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   boolProp,
   objectSchema,
   optionalBoolProp,
@@ -36,23 +36,24 @@ function listFiles(dir: string): string[] {
   }
 }
 
-// ─── amux_artifacts ──────────────────────────────────────────
+// ─── amutix_artifacts ──────────────────────────────────────────
 
-/** `amux_artifacts` params. */
+/** `amutix_artifacts` params. */
 export interface ArtifactsParams {
   // Stateless tool: no parameters.
 }
 
-/** Neutral amux_artifacts tool: list project + private artifact files. */
-export const artifactsTool: AmuxToolDefinition<ArtifactsParams> = {
-  name: "amux_artifacts",
+/** Neutral amutix_artifacts tool: list project + private artifact files. */
+export const artifactsTool: AmutixToolDefinition<ArtifactsParams> = {
+  name: "amutix_artifacts",
+  aliases: ["amux_artifacts"],
   label: "List Artifacts",
   description:
     "List shared documents at project and agent levels. " +
     "Use read/write/edit tools to work with the files directly.",
   promptSnippet: "List shared artifacts at project or agent level",
   inputSchema: objectSchema({}),
-  async execute(ctx: AmuxToolContext): Promise<AmuxToolResult> {
+  async execute(ctx: AmutixToolContext): Promise<AmutixToolResult> {
     const sections: string[] = [];
 
     // Project level
@@ -75,16 +76,17 @@ export const artifactsTool: AmuxToolDefinition<ArtifactsParams> = {
   },
 };
 
-// ─── amux_list ───────────────────────────────────────────────
+// ─── amutix_list ───────────────────────────────────────────────
 
-/** `amux_list` params. */
+/** `amutix_list` params. */
 export interface ListParams {
   allSessions?: boolean;
 }
 
-/** Neutral amux_list tool: list online agents, optionally across sessions. */
-export const listTool: AmuxToolDefinition<ListParams> = {
-  name: "amux_list",
+/** Neutral amutix_list tool: list online agents, optionally across sessions. */
+export const listTool: AmutixToolDefinition<ListParams> = {
+  name: "amutix_list",
+  aliases: ["amux_list"],
   label: "List Agents",
   description:
     "List online amux agents with their session, name, role, and status. " +
@@ -96,7 +98,7 @@ export const listTool: AmuxToolDefinition<ListParams> = {
       allSessions: optionalBoolProp("If true, list agents from all sessions. Default: false."),
     },
   ),
-  async execute(ctx: AmuxToolContext, params: ListParams): Promise<AmuxToolResult> {
+  async execute(ctx: AmutixToolContext, params: ListParams): Promise<AmutixToolResult> {
     let agents: AgentInfo[];
     if (params.allSessions) {
       agents = (await readAllRegistries()).filter(isEffectivelyOnline);

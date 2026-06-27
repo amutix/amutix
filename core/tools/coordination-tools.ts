@@ -1,7 +1,7 @@
 /**
  * Neutral coordination tools.
  *
- * Migrates `amux_role`, `amux_reserve`, and `amux_journal` out of the Pi
+ * Migrates `amutix_role`, `amutix_reserve`, and `amutix_journal` out of the Pi
  * adapter. These tools coordinate roles, file reservations, and shared
  * journal entries through framework-independent core services.
  */
@@ -39,16 +39,16 @@ import {
   type JournalEntry,
 } from "../journal.ts";
 import {
-  type AmuxToolContext,
-  type AmuxToolDefinition,
-  type AmuxToolResult,
+  type AmutixToolContext,
+  type AmutixToolDefinition,
+  type AmutixToolResult,
   enumProp,
   objectSchema,
   optionalStringProp,
   stringProp,
 } from "./types.ts";
 
-// ─── amux_role ───────────────────────────────────────────────
+// ─── amutix_role ───────────────────────────────────────────────
 
 const ROLE_ACTIONS = ["add", "list", "remove", "templates", "apply-template", "show", "path"] as const;
 
@@ -67,8 +67,9 @@ async function getRoleUsage(session: string, roleName: string): Promise<AgentInf
   return Object.values(registry).filter((a) => a.roleName === roleName);
 }
 
-export const roleTool: AmuxToolDefinition<RoleParams> = {
-  name: "amux_role",
+export const roleTool: AmutixToolDefinition<RoleParams> = {
+  name: "amutix_role",
+  aliases: ["amux_role"],
   label: "Manage Roles",
   description:
     "Add, list, remove, or apply role definitions for the current amux session. " +
@@ -77,10 +78,10 @@ export const roleTool: AmuxToolDefinition<RoleParams> = {
     "Agents join projects with /amux join.",
   promptSnippet: "Manage amux roles  -- add, list, remove, templates, apply-template, show, path",
   promptGuidelines: [
-    "Use amux_role apply-template to quickly set up a standard team (e.g. core-team).",
-    "Use amux_role templates to see bundled role profiles and team templates.",
+    "Use amutix_role apply-template to quickly set up a standard team (e.g. core-team).",
+    "Use amutix_role templates to see bundled role profiles and team templates.",
     "Applying a team template copies role profiles and registers roles  -- it does not create agents.",
-    "Each amux_role has a name and instructions that guide the agent's behavior.",
+    "Each amutix_role has a name and instructions that guide the agent's behavior.",
   ],
   inputSchema: objectSchema(
     {
@@ -92,7 +93,7 @@ export const roleTool: AmuxToolDefinition<RoleParams> = {
     ["action"],
   ),
 
-  async execute(ctx, params): Promise<AmuxToolResult> {
+  async execute(ctx, params): Promise<AmutixToolResult> {
     switch (params.action) {
       case "add": {
         if (!params.name) throw new Error("Role name is required for add.");
@@ -107,7 +108,7 @@ export const roleTool: AmuxToolDefinition<RoleParams> = {
         const roles = await readRoles(ctx.session);
         const entries = Object.values(roles);
         if (entries.length === 0) {
-          return { text: "No roles defined. Use amux_role with action=add to create one.", details: { roles: [] } };
+          return { text: "No roles defined. Use amutix_role with action=add to create one.", details: { roles: [] } };
         }
         const registry = await readRegistry(ctx.session);
         const allAgents = Object.values(registry);
@@ -146,7 +147,7 @@ export const roleTool: AmuxToolDefinition<RoleParams> = {
         text += teamTemplates
           .map((t) => `  - ${t.name}: ${t.description} [${t.roles.map((r) => r.name).join(", ")}]`)
           .join("\n") || "  (none)";
-        text += "\n\nApply a team: amux_role apply-template <name>";
+        text += "\n\nApply a team: amutix_role apply-template <name>";
         return { text, details: { roleTemplates, teamTemplates } };
       }
       case "apply-template": {
@@ -191,7 +192,7 @@ export const roleTool: AmuxToolDefinition<RoleParams> = {
   },
 };
 
-// ─── amux_reserve ────────────────────────────────────────────
+// ─── amutix_reserve ────────────────────────────────────────────
 
 const RESERVE_ACTIONS = ["claim", "release", "list"] as const;
 type ReserveAction = typeof RESERVE_ACTIONS[number];
@@ -202,8 +203,9 @@ interface ReserveParams {
   reason?: string;
 }
 
-export const reserveTool: AmuxToolDefinition<ReserveParams> = {
-  name: "amux_reserve",
+export const reserveTool: AmutixToolDefinition<ReserveParams> = {
+  name: "amutix_reserve",
+  aliases: ["amux_reserve"],
   label: "File Reservations",
   description:
     "Manage file/directory reservations to prevent conflicts. " +
@@ -211,7 +213,7 @@ export const reserveTool: AmuxToolDefinition<ReserveParams> = {
     "Trailing slash = directory prefix, no slash = exact file.",
   promptSnippet: "Manage file reservations  -- claim, release, list",
   promptGuidelines: [
-    "Use amux_reserve with action 'claim' before editing files other agents might work on.",
+    "Use amutix_reserve with action 'claim' before editing files other agents might work on.",
     "Trailing slash = directory prefix (e.g., 'src/auth/'), no slash = exact file.",
     "Release reservations with action 'release' when done editing.",
   ],
@@ -224,7 +226,7 @@ export const reserveTool: AmuxToolDefinition<ReserveParams> = {
     ["action"],
   ),
 
-  async execute(ctx, params): Promise<AmuxToolResult> {
+  async execute(ctx, params): Promise<AmutixToolResult> {
     switch (params.action) {
       case "claim": {
         if (!params.paths?.length) throw new Error("Paths are required for claim.");
@@ -275,7 +277,7 @@ export const reserveTool: AmuxToolDefinition<ReserveParams> = {
   },
 };
 
-// ─── amux_journal ────────────────────────────────────────────
+// ─── amutix_journal ────────────────────────────────────────────
 
 const JOURNAL_ACTIONS = ["add", "list"] as const;
 const JOURNAL_TYPES = ["decision", "learning", "progress"] as const;
@@ -290,8 +292,9 @@ interface JournalParams {
   limit?: number;
 }
 
-export const journalTool: AmuxToolDefinition<JournalParams> = {
-  name: "amux_journal",
+export const journalTool: AmutixToolDefinition<JournalParams> = {
+  name: "amutix_journal",
+  aliases: ["amux_journal"],
   label: "Journal",
   description:
     "Append-only journal for recording decisions, learnings, and progress. " +
@@ -299,7 +302,7 @@ export const journalTool: AmuxToolDefinition<JournalParams> = {
     "Recent entries are automatically injected into the system prompt.",
   promptSnippet: "Record and review decisions, learnings, and progress",
   promptGuidelines: [
-    "Use amux_journal to record important decisions, things you've learned, and progress updates.",
+    "Use amutix_journal to record important decisions, things you've learned, and progress updates.",
     "Journal entries are shared across all agents and persist across sessions.",
     "Recent entries are automatically included in the system prompt for context.",
     "When you discover ways to improve team alignment, code quality, or ways of working, capture them as a 'learning'  -- these shape how the team collaborates and raises the quality bar.",
@@ -315,7 +318,7 @@ export const journalTool: AmuxToolDefinition<JournalParams> = {
     ["action"],
   ),
 
-  async execute(ctx, params): Promise<AmuxToolResult> {
+  async execute(ctx, params): Promise<AmutixToolResult> {
     switch (params.action) {
       case "add": {
         if (!params.type) throw new Error("Entry type is required for add (decision, learning, or progress).");

@@ -87,7 +87,7 @@ function formatTaskDiscussionPromptSummary(taskId: string, comments: TaskComment
   const count = substantive.length;
   const preview = taskCommentPreview(latest.text, 180);
   const plural = count === 1 ? "comment" : "comments";
-  return `Recent task discussion: ${count} ${plural}; latest from ${latest.agent} ${formatMessageAge(latest.timestamp)}: "${preview}"\nUse amux_task show ${taskId} for the full thread.`;
+  return `Recent task discussion: ${count} ${plural}; latest from ${latest.agent} ${formatMessageAge(latest.timestamp)}: "${preview}"\nUse amutix_task show ${taskId} for the full thread.`;
 }
 
 // ─── Gather ──────────────────────────────────────────────────
@@ -160,7 +160,7 @@ export async function gatherAgentPromptSections(
         .map((t) => formatTaskDiscussionPromptSummary(t.id, readTaskComments(session, t.id)))
         .filter((summary) => summary.length > 0)
         .map((summary) => `  - ${summary.replace(/\n/g, "\n    ")}`);
-      workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nReview/integrate; use amux_task show only when needed and comment for review discussion.`;
+      workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nReview/integrate; use amutix_task show only when needed and comment for review discussion.`;
       if (reviewSummaries.length > 0) {
         workState += `\n\nLatest review discussion preview:\n${reviewSummaries.join("\n")}`;
       }
@@ -177,7 +177,7 @@ export async function gatherAgentPromptSections(
         const task = p.taskId ? ` ${p.taskId}` : "";
         return `- ${p.id}${task} to ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
       });
-      workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nReply with amux_send inReplyTo to close.`;
+      workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nReply with amutix_send inReplyTo to close.`;
     }
   }
 
@@ -247,14 +247,14 @@ export async function gatherAgentPromptSections(
     const recentJournal = getRecentEntries(session, 6);
     if (recentJournal.length > 0) {
       const journalLines = recentJournal.map((e) => `- ${formatEntryPreview(e, 180)}`);
-      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal (compact, last ${recentJournal.length})\n${journalLines.join("\n")}\nFull bodies: amux_journal list.`;
+      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal (compact, last ${recentJournal.length})\n${journalLines.join("\n")}\nFull bodies: amutix_journal list.`;
     }
   }
 
   // ── Section 7: Interface/tool guidance + shared artifact paths ──
   const interfaceGuidance = `## Interfaces & Artifacts
-- Messages from other agents appear as "[amux:session/agent (role) \u00b7 sent Xm ago] message". Treat them as teammate requests; reply with amux_send to the sender.
-- Use amux_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
+- Messages from other agents appear as "[amutix:session/agent (role) \u00b7 sent Xm ago] message". Treat them as teammate requests; reply with amutix_send to the sender.
+- Use amutix_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
 - Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.
 
 ### Shared Artifacts

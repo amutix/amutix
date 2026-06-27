@@ -1,15 +1,15 @@
 /**
- * amux  -- Pi Multi-Agent Coordination
+ * amutix  -- Pi Multi-Agent Coordination
  *
  * Terminal-agnostic multi-agent coordination for Pi.
  * Communication uses file-based inboxes.
  *
  * Agent lifecycle:
- *   /amux join       -- join or create a project, pick or create an agent
+ *   /amutix join       -- join or create a project, pick or create an agent
  *   session shutdown  -- agent goes offline (persists for later)
  *
- * Tools: amux_role, amux_list, amux_send, amux_broadcast,
- *         amux_reserve, amux_project, amux_task, amux_journal
+ * Tools: amutix_role, amutix_list, amutix_send, amutix_broadcast,
+ *         amutix_reserve, amutix_project, amutix_task, amutix_journal
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -66,8 +66,8 @@ import {
   gatherAgentPromptSections,
   type PromptContextAgent,
 } from "../core/prompt-context";
-import { allAmuxTools } from "../core/tools/index.ts";
-import { registerAmuxTools, buildAmuxToolContext } from "./tool-adapter.ts";
+import { allAmutixTools } from "../core/tools/index.ts";
+import { registerAmutixTools, buildAmutixToolContext } from "./tool-adapter.ts";
 import {
   ensureInbox,
   getRecoverableMessages,
@@ -140,7 +140,7 @@ export default function (pi: ExtensionAPI) {
 
   function myPrefix(): string {
     const addr = myAddress();
-    return myRoleName ? `[amux:${addr} (${myRoleName})]` : `[amux:${addr}]`;
+    return myRoleName ? `[amutix:${addr} (${myRoleName})]` : `[amutix:${addr}]`;
   }
 
   function inboxMessagePrefix(msg: InboxMessage): string {
@@ -149,14 +149,14 @@ export default function (pi: ExtensionAPI) {
     const taskStr = msg.taskId ? ` · ${msg.taskId}` : "";
     const responseStr = msg.responseRequired ? " · response requested" : "";
     return msg.fromRole
-      ? `[amux:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr}${responseStr} · sent ${age}]`
-      : `[amux:${msg.fromSession}/${msg.fromName}${catStr}${taskStr}${responseStr} · sent ${age}]`;
+      ? `[amutix:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr}${responseStr} · sent ${age}]`
+      : `[amutix:${msg.fromSession}/${msg.fromName}${catStr}${taskStr}${responseStr} · sent ${age}]`;
   }
 
   function formatInboxDelivery(msg: InboxMessage): string {
     let text = `${inboxMessagePrefix(msg)} ${msg.message}`;
     if (msg.responseRequired) {
-      text += `\n\nResponse requested. Reply with amux_send to ${formatAddress(msg.fromSession, msg.fromName)} and include inReplyTo: "${msg.id}".`;
+      text += `\n\nResponse requested. Reply with amutix_send to ${formatAddress(msg.fromSession, msg.fromName)} and include inReplyTo: "${msg.id}".`;
     }
     return text;
   }
@@ -209,7 +209,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     // Persist UUID in pi session (survives /reload)
-    pi.appendEntry("amux-agent", { id: myId, session: mySession });
+    pi.appendEntry("amutix-agent", { id: myId, session: mySession });
 
     // Update titles and status widget
     updateTitles(ctx);
@@ -253,7 +253,7 @@ export default function (pi: ExtensionAPI) {
     let recoveredId: string | undefined;
     let recoveredSession: string | undefined;
     for (const entry of ctx.sessionManager.getEntries()) {
-      if (entry.type === "custom" && entry.customType === "amux-agent") {
+      if (entry.type === "custom" && (entry.customType === "amutix-agent" || entry.customType === "amux-agent")) {
         const data = entry.data as { id: string; session: string };
         recoveredId = data.id;
         recoveredSession = data.session;
@@ -280,7 +280,7 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Otherwise: silent. Use /amux join to get started.
+    // Otherwise: silent. Use /amutix join to get started.
   });
 
   pi.on("session_shutdown", async (event) => {
@@ -347,8 +347,8 @@ export default function (pi: ExtensionAPI) {
       : ownerWork;
     const ownerNote = ownerState ? ` Owner state: ${ownerState}.` : "";
     const guidance = taskId
-      ? `Use amux_task comment on ${taskId} to coordinate.`
-      : `Use amux_send('${reservation.agent}', ...) only for exceptional coordination.`;
+      ? `Use amutix_task comment on ${taskId} to coordinate.`
+      : `Use amutix_send('${reservation.agent}', ...) only for exceptional coordination.`;
     const warning =
       `⚠️ ${filePath} conflicts with reservation ${formatReservationConflict(reservedPath, reservation, stale)}` +
       `${ownerNote} ${guidance}`;
@@ -398,11 +398,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   /**
-   * Gather all amux coordination sections for the joined agent. Thin adapter
+   * Gather all amutix coordination sections for the joined agent. Thin adapter
    * wrapper over the core gatherer: it supplies the current agent's
    * identity/role/address and the only host-execution concern (resolving the
    * git branch of the agent worktree). The product logic lives in
-   * core/prompt-context.ts so the injected prompt and the `/amux prompt`
+   * core/prompt-context.ts so the injected prompt and the `/amutix prompt`
    * preview -- which share this single path -- can never drift.
    *
    * Caller must ensure the agent has joined (mySession/myId/myName set).
@@ -428,13 +428,13 @@ export default function (pi: ExtensionAPI) {
 
   // Neutral tool registry: schema/result bridging and registration live in
   // pi/tool-adapter.ts; tool product logic is framework-neutral in core/tools.
-  // (amux_artifacts, amux_list, amux_project, and amux_wow are migrated;
+  // (amutix_artifacts, amutix_list, amutix_project, and amutix_wow are migrated;
   // other tools remain inline pending SPEC-18 slices 3-5.)
-  registerAmuxTools(pi, allAmuxTools(), () => {
+  registerAmutixTools(pi, allAmutixTools(), () => {
     if (!mySession || !myId || !myName) {
-      throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
+      throw new Error("Not registered. Use /amutix new agent --join to set up, then /amutix join.");
     }
-    return buildAmuxToolContext({
+    return buildAmutixToolContext({
       session: mySession,
       agentId: myId,
       agentName: myName,
@@ -444,18 +444,18 @@ export default function (pi: ExtensionAPI) {
   });
 
   // - Neutral-registry tools (all migrated) ---------------------
-  // All amux tools (amux_artifacts, amux_list, amux_project, amux_wow,
-  // amux_send, amux_broadcast, amux_discussion, amux_role, amux_reserve,
-  // amux_journal, amux_task) are registered via the neutral tool registry
-  // bridge (pi/tool-adapter.ts). See allAmuxTools() in core/tools; slash
+  // All amutix tools (amutix_artifacts, amutix_list, amutix_project, amutix_wow,
+  // amutix_send, amutix_broadcast, amutix_discussion, amutix_role, amutix_reserve,
+  // amutix_journal, amutix_task) are registered via the neutral tool registry
+  // bridge (pi/tool-adapter.ts). See allAmutixTools() in core/tools; slash
   // commands remain in this Pi adapter.
 
   // -- Commands -------------------------------------------------
 
-  // -- /amux -- unified command with subcommands -----------------
+  // -- /amutix -- unified command with subcommands -----------------
 
-  pi.registerCommand("amux", {
-    description: "amux: join, leave, status",
+  const amutixCommand = {
+    description: "amutix: join, leave, status",
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/);
       const sub = parts[0] || "";
@@ -490,19 +490,22 @@ export default function (pi: ExtensionAPI) {
           return handleProject(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nCanonical:\n  /amux project       Vision, WoW, roles/templates\n  /amux team          Agents, availability, workspaces\n  /amux work          Progress and backlog views\n  /amux prompt        Preview the amux coordination block\n\nShortcuts:\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Alias for /amux work\n  /amux show <id>     Alias for /amux work show <id>\n  /amux status set    Set availability`,
+            `Unknown: /amutix ${sub}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Preview the amutix coordination block\n\nShortcuts:\n  /amutix join          Join a project as an agent\n  /amutix leave         Leave current project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>\n  /amutix status set    Set availability`,
             "warning"
           );
       }
     },
-  });
+  };
+  pi.registerCommand("amutix", amutixCommand);
+  // Back-compat alias (deprecated): /amux forwards to /amutix. Remove in 3.0.
+  pi.registerCommand("amux", amutixCommand);
 
   // -- status handler --
 
   async function handleStatus(ctx: ExtensionContext): Promise<void> {
     if (!mySession || !myId) {
       ctx.ui.notify(
-        "Not in a project.\n\n  /amux join       Join a project as an agent",
+        "Not in a project.\n\n  /amutix join       Join a project as an agent",
         "info"
       );
       return;
@@ -534,7 +537,7 @@ export default function (pi: ExtensionAPI) {
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\nCanonical:\n  /amux project       Vision, WoW, roles/templates\n  /amux team          Agents, availability, workspaces\n  /amux work          Progress and backlog views\n  /amux prompt        Prompt/debug preview\n\nShortcuts:\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Alias for /amux work\n  /amux show <id>     Alias for /amux work show <id>`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Prompt/debug preview\n\nShortcuts:\n  /amutix join          Switch project or agent\n  /amutix leave         Leave project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>`,
       "info"
     );
   }
@@ -544,7 +547,7 @@ export default function (pi: ExtensionAPI) {
     if (sub === "summary" || sub === "progress") return handleProgress(ctx);
     if (sub === "show") return handleShow(args.slice(1), ctx);
     ctx.ui.notify(
-      `Usage:\n  /amux work                 Progress overview\n  /amux work show <ITEM-ID>  Backlog item details\n\nShortcuts: /amux progress, /amux show <ITEM-ID>`,
+      `Usage:\n  /amutix work                 Progress overview\n  /amutix work show <ITEM-ID>  Backlog item details\n\nShortcuts: /amutix progress, /amutix show <ITEM-ID>`,
       "info"
     );
   }
@@ -564,7 +567,7 @@ export default function (pi: ExtensionAPI) {
         break;
     }
     ctx.ui.notify(
-      `Usage:\n  /amux team                 Team status\n  /amux team join [project]  Join project/agent\n  /amux team leave           Leave project\n  /amux team workspace       Git workspace setup/sync\n  /amux team new agent ...   Create an agent\n  /amux team status set <idle|working|focus|away> [message]\n\nShortcuts: /amux join, /amux leave, /amux status set, /amux workspace`,
+      `Usage:\n  /amutix team                 Team status\n  /amutix team join [project]  Join project/agent\n  /amutix team leave           Leave project\n  /amutix team workspace       Git workspace setup/sync\n  /amutix team new agent ...   Create an agent\n  /amutix team status set <idle|working|focus|away> [message]\n\nShortcuts: /amutix join, /amutix leave, /amutix status set, /amutix workspace`,
       "info"
     );
   }
@@ -573,13 +576,13 @@ export default function (pi: ExtensionAPI) {
 
   async function handleShow(args: string[], ctx: ExtensionContext): Promise<void> {
     if (!mySession) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
       return;
     }
 
     const id = args[0];
     if (!id) {
-      ctx.ui.notify("Usage: /amux show <ITEM-ID>\nExample: /amux show TASK-01", "warning");
+      ctx.ui.notify("Usage: /amutix show <ITEM-ID>\nExample: /amutix show TASK-01", "warning");
       return;
     }
 
@@ -613,7 +616,7 @@ export default function (pi: ExtensionAPI) {
 
   async function handleProgress(ctx: ExtensionContext): Promise<void> {
     if (!mySession) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
       return;
     }
     const summary = await buildProgressSummary(mySession);
@@ -628,14 +631,14 @@ export default function (pi: ExtensionAPI) {
   // -- join handler --
 
   async function handleJoin(projectArg: string, ctx: ExtensionContext): Promise<void> {
-    // 1. Select project (no creation -- use /amux new project)
+    // 1. Select project (no creation -- use /amutix new project)
     let project = projectArg.trim();
 
     if (!project) {
       const existing = await listSessions();
 
       if (existing.length === 0) {
-        ctx.ui.notify("No projects yet. Use /amux new project to create one.", "info");
+        ctx.ui.notify("No projects yet. Use /amutix new project to create one.", "info");
         return;
       }
 
@@ -647,7 +650,7 @@ export default function (pi: ExtensionAPI) {
     // Verify project exists
     const { existsSync } = await import("node:fs");
     if (!existsSync(sessionDir(project))) {
-      ctx.ui.notify(`Project "${project}" not found. Use /amux new project to create it.`, "info");
+      ctx.ui.notify(`Project "${project}" not found. Use /amutix new project to create it.`, "info");
       return;
     }
 
@@ -659,14 +662,14 @@ export default function (pi: ExtensionAPI) {
     const onlineAgents = allAgents.filter(isEffectivelyOnline);
 
     if (offlineAgents.length === 0 && onlineAgents.length === 0) {
-      ctx.ui.notify(`No agents in "${project}". Use /amux new agent to create one.`, "info");
+      ctx.ui.notify(`No agents in "${project}". Use /amutix new agent to create one.`, "info");
       return;
     }
 
     if (offlineAgents.length === 0) {
       const names = onlineAgents.map((a) => a.name).join(", ");
       ctx.ui.notify(
-        `All agents in "${project}" are online (${names}). Use /amux new agent to create another.`,
+        `All agents in "${project}" are online (${names}). Use /amutix new agent to create another.`,
         "info"
       );
       return;
@@ -731,7 +734,7 @@ export default function (pi: ExtensionAPI) {
 
     await goOffline(mySession, myId);
     stopAgent();
-    pi.appendEntry("amux-agent", { id: null, session: null });
+    pi.appendEntry("amutix-agent", { id: null, session: null });
 
     myId = undefined;
     myName = undefined;
@@ -740,7 +743,7 @@ export default function (pi: ExtensionAPI) {
     myRoleInstructions = undefined;
     mySession = undefined;
 
-    ctx.ui.setStatus("amux", "");
+    ctx.ui.setStatus("amutix", "");
     ctx.ui.setTitle("pi");
 
     ctx.ui.notify(`Left project "${projectName}". Back to solo Pi.`, "info");
@@ -753,7 +756,7 @@ export default function (pi: ExtensionAPI) {
     const projects = await listSessions();
 
     if (projects.length === 0) {
-      ctx.ui.notify("No projects yet. Create one with /amux new project.", "info");
+      ctx.ui.notify("No projects yet. Create one with /amutix new project.", "info");
       return null;
     }
 
@@ -766,7 +769,7 @@ export default function (pi: ExtensionAPI) {
 
   async function handleWorkspace(ctx: ExtensionContext): Promise<void> {
     if (!mySession || !myId) {
-      ctx.ui.notify("Join a project first with /amux join.", "warning");
+      ctx.ui.notify("Join a project first with /amutix join.", "warning");
       return;
     }
 
@@ -844,7 +847,7 @@ export default function (pi: ExtensionAPI) {
       case "role": return handleNewRole(args.slice(1), ctx);
       default:
         ctx.ui.notify(
-          "Usage:\n  /amux new project [name]\n  /amux new agent [name] [--role <role>] [--workspace worktree|current|none] [--join]\n  /amux new role [name]",
+          "Usage:\n  /amutix new project [name]\n  /amutix new agent [name] [--role <role>] [--workspace worktree|current|none] [--join]\n  /amutix new role [name]",
           "info"
         );
     }
@@ -895,8 +898,8 @@ export default function (pi: ExtensionAPI) {
     msg += `\nDefault Ways of Working created.`;
     msg += visionSet
       ? `\nProject vision/context set.`
-      : `\n\nNext alignment step: /amux project vision set <vision>`;
-    msg += `\nThen: /amux new agent <name> --role <role>`;
+      : `\n\nNext alignment step: /amutix project vision set <vision>`;
+    msg += `\nThen: /amutix new agent <name> --role <role>`;
     ctx.ui.notify(msg, "info");
   }
 
@@ -957,7 +960,7 @@ export default function (pi: ExtensionAPI) {
     } else if (wsType === "current") {
       workspace = ctx.cwd;
     } else if (wsType === "worktree" && !config.mainRepo) {
-      ctx.ui.notify("No main repo configured. Use /amux new project --repo current to set one.", "warning");
+      ctx.ui.notify("No main repo configured. Use /amutix new project --repo current to set one.", "warning");
     }
 
     // Create
@@ -1004,7 +1007,7 @@ export default function (pi: ExtensionAPI) {
       let msg = `Agent "${name}" created (offline).`;
       if (roleName) msg += `\nRole: ${roleName}`;
       if (workspace) msg += `\nWorkspace: ${workspace}`;
-      msg += `\nUse /amux join to start working as this agent.`;
+      msg += `\nUse /amutix join to start working as this agent.`;
       ctx.ui.notify(msg, "info");
     }
   }
@@ -1032,15 +1035,15 @@ export default function (pi: ExtensionAPI) {
   // -- prompt preview handler --
 
   /**
-   * `/amux prompt` — debug/preview of the composed amux coordination block.
-   * Shows exactly what amux APPENDS to the host agent runtime's base system
+   * `/amutix prompt` — debug/preview of the composed amutix coordination block.
+   * Shows exactly what amutix APPENDS to the host agent runtime's base system
    * prompt for the joined agent (the base prompt itself is never shown). Uses the same gathering
    * path (gatherPromptSections) as the before_agent_start hook, so the preview
    * cannot drift from what is actually injected.
    */
   async function handlePrompt(args: string[], ctx: ExtensionContext): Promise<void> {
     if (!mySession || !myId || !myName) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
       return;
     }
     try {
@@ -1057,7 +1060,7 @@ export default function (pi: ExtensionAPI) {
       const section = PROMPT_SECTION_ORDER.find((key) => key === target);
       if (!section) {
         ctx.ui.notify(
-          `Usage: /amux prompt [all|section]\n\nSections: ${PROMPT_SECTION_ORDER.join(", ")}`,
+          `Usage: /amutix prompt [all|section]\n\nSections: ${PROMPT_SECTION_ORDER.join(", ")}`,
           "warning"
         );
         return;
@@ -1078,7 +1081,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (sub === "help") {
       ctx.ui.notify(
-        `Usage:\n  /amux project                  Show project vision/context\n  /amux project vision ...       Manage vision/context\n  /amux project wow ...          Manage Ways of Working\n\nShortcuts: /amux wow, /amux project context ...`,
+        `Usage:\n  /amutix project                  Show project vision/context\n  /amutix project vision ...       Manage vision/context\n  /amutix project wow ...          Manage Ways of Working\n\nShortcuts: /amutix wow, /amutix project context ...`,
         "info"
       );
       return;
@@ -1113,7 +1116,7 @@ export default function (pi: ExtensionAPI) {
     ops: ArtifactOps,
   ): Promise<void> {
     if (!mySession) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
       return;
     }
 
@@ -1126,7 +1129,7 @@ export default function (pi: ExtensionAPI) {
         if (!content) {
           ctx.ui.notify(`No ${ops.label} set.
 
-Use /amux ${ops.command} set <text>`, "info");
+Use /amutix ${ops.command} set <text>`, "info");
         } else {
           ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} (${p}):
 
@@ -1144,14 +1147,14 @@ ${content}`, "info");
       }
       case "set": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.command} set <text>`, "warning"); return; }
+        if (!text) { ctx.ui.notify(`Usage: /amutix ${ops.command} set <text>`, "warning"); return; }
         ops.write(text);
         ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} set. Changes affect future agent prompts.`, "info");
         break;
       }
       case "append": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.command} append <text>`, "warning"); return; }
+        if (!text) { ctx.ui.notify(`Usage: /amutix ${ops.command} append <text>`, "warning"); return; }
         ops.append(text);
         ctx.ui.notify(`Appended to ${ops.label}. Changes affect future agent prompts.`, "info");
         break;
@@ -1170,12 +1173,12 @@ ${content}`, "info");
       default:
         ctx.ui.notify(
           `Usage:
-  /amux ${ops.command}                         Show current ${ops.label}
-  /amux ${ops.command} set <t>          Replace ${ops.label}
-  /amux ${ops.command} append <t>       Append to ${ops.label}
-  /amux ${ops.command} edit             Open editor
-  /amux ${ops.command} clear            Clear ${ops.label}
-  /amux ${ops.command} path             Show path`,
+  /amutix ${ops.command}                         Show current ${ops.label}
+  /amutix ${ops.command} set <t>          Replace ${ops.label}
+  /amutix ${ops.command} append <t>       Append to ${ops.label}
+  /amutix ${ops.command} edit             Open editor
+  /amutix ${ops.command} clear            Clear ${ops.label}
+  /amutix ${ops.command} path             Show path`,
           "info"
         );
     }
@@ -1214,7 +1217,7 @@ ${content}`, "info");
 
   async function handleStatusSet(args: string[], ctx: ExtensionContext): Promise<void> {
     if (!mySession || !myId) {
-      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
       return;
     }
 
@@ -1222,7 +1225,7 @@ ${content}`, "info");
     const state = args[0];
     if (!state || !validStates.includes(state)) {
       ctx.ui.notify(
-        "Usage: /amux status set <idle|working|focus|away> [message]",
+        "Usage: /amutix status set <idle|working|focus|away> [message]",
         "info"
       );
       return;
@@ -1280,7 +1283,7 @@ ${content}`, "info");
     mkdirSync(agentArtifactsDir(myId), { recursive: true });
   }
 
-  // listFiles moved to core/tools/pilot-tools.ts (neutral amux_artifacts)
+  // listFiles moved to core/tools/pilot-tools.ts (neutral amutix_artifacts)
 
   async function trySetModel(ctx: ExtensionContext, modelStr: string): Promise<void> {
     let found = false;
@@ -1302,7 +1305,7 @@ ${content}`, "info");
     }
 
     if (!found) {
-      ctx.ui.notify(`amux: model "${modelStr}" not found  -- using default`, "warning");
+      ctx.ui.notify(`amutix: model "${modelStr}" not found  -- using default`, "warning");
     }
   }
 
@@ -1315,7 +1318,7 @@ ${content}`, "info");
       const me = agents.find((a) => a.id === myId);
 
       if (!me) {
-        ctx.ui.setStatus("amux", theme.fg("accent", `amux: ${myName || "unknown"}@${mySession}`) + theme.fg("dim", " (offline)"));
+        ctx.ui.setStatus("amutix", theme.fg("accent", `amutix: ${myName || "unknown"}@${mySession}`) + theme.fg("dim", " (offline)"));
         return;
       }
 
@@ -1327,7 +1330,7 @@ ${content}`, "info");
         ? theme.fg("dim", ` | ${others.map((a) => a.name).join(", ")}`)
         : "";
       const roleSummary = me.roleName ? theme.fg("dim", ` | ${me.roleName}`) : "";
-      ctx.ui.setStatus("amux", theme.fg("accent", `◆ ${me.name}@${mySession}`) + teammateSummary + roleSummary);
+      ctx.ui.setStatus("amutix", theme.fg("accent", `◆ ${me.name}@${mySession}`) + teammateSummary + roleSummary);
     } catch {
       // Ignore widget errors
     }

@@ -175,8 +175,8 @@ export async function reserve(
         if (!isStale) {
           const taskId = reservationTaskId(reservation);
           const guidance = taskId
-            ? `Use amux_task comment on ${taskId} to coordinate.`
-            : `Use amux_send('${reservation.agent}', ...) only for exceptional coordination.`;
+            ? `Use amutix_task comment on ${taskId} to coordinate.`
+            : `Use amutix_send('${reservation.agent}', ...) only for exceptional coordination.`;
           throw new Error(`Conflict: ${formatReservationConflict(existingPath, reservation)} ${guidance}`);
         }
       }
