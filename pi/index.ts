@@ -91,7 +91,6 @@ import {
   reservationTaskId,
 } from "../core/reservations";
 import {
-  type BacklogItem,
   readBacklog,
   readSpecPreview,
 } from "../core/backlog";
@@ -170,10 +169,7 @@ export default function (pi: ExtensionAPI) {
     const self = await findById(mySession, myId).catch(() => null);
     if (!self || !isEffectivelyOnline(self)) return;
 
-    const backlog = await readBacklog(mySession).catch(() => [] as BacklogItem[]);
-    const hasActiveWork = backlog.some((t) => t.status === "in-progress" && t.assigneeId === myId);
     if (self.availability === "focus" || self.availability === "away") return;
-    if (self.availability === "working" && hasActiveWork) return;
 
     const digest = await computeAttentionDigest(mySession, myId, self);
     const signature = attentionSignature(digest);

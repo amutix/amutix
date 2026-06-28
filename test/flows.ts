@@ -1723,6 +1723,30 @@ describe("Self-waking attention digest", () => {
     assert.match(notice, new RegExp(review.id));
   });
 
+  it("derives active in-progress work as a resume pointer after pick", async () => {
+    const active = await addTask(session, {
+      title: "Picked but unfinished", status: "in-progress",
+      assignee: "Reviewer", assigneeId: reviewerId,
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+
+    const reviewer = await findById(session, reviewerId);
+    const digest = await computeAttentionDigest(session, reviewerId, reviewer!);
+    assert.ok(digest.some((e) => e.kind === "active" && e.pointer === active.id));
+
+    const priorSig = "assigned:" + active.id;
+    const activeSig = attentionSignature(digest);
+    assert.notEqual(activeSig, priorSig);
+    assert.equal(shouldDeliverAttention({
+      digest,
+      signature: activeSig,
+      deliveredAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      deliveredSig: priorSig,
+      lastTurnEndedAt: new Date("2026-01-01T00:01:00.000Z").toISOString(),
+      now: new Date("2026-01-01T00:01:30.000Z").getTime(),
+    }), true);
+  });
+
   it("deduplicates until new attention, but re-delivers after missed/interrupted turns", () => {
     const digest = [
       { kind: "review" as const, pointer: "TASK-01", summary: "TASK-01 ready for review" },

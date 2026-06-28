@@ -30,7 +30,7 @@ Agents and scripts using old `amux_*` tool names and `/amux` commands continue t
 
 ### Added
 
-- Added a lightweight self-waking attention digest for Pi agents. Each live agent's own heartbeat now derives outstanding attention from durable state (unread inbox messages, assigned-but-unpicked work, pending replies, and targeted review attention) and sends a compact self-wake follow-up with pointers only.
+- Added a lightweight self-waking attention digest for Pi agents. Each live agent's own heartbeat now derives outstanding attention from durable state (unread inbox messages, assigned-but-unpicked work, in-progress work owned by the agent, pending replies, and targeted review attention) and sends a compact self-wake follow-up with pointers only.
 - Added turn-completion-gated attention dedup: unchanged attention is suppressed after a completed turn, but an interrupted/missed turn is re-woken because `lastTurnEndedAt` never advanced.
 
 ### Changed

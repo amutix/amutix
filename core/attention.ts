@@ -27,6 +27,7 @@ import type { AgentInfo } from "./registry.ts";
 export type AttentionKind =
   | "message" // unread inbox message addressed to me
   | "assigned" // task assigned to me, not yet started
+  | "active" // task I picked and still own in-progress
   | "reply" // pending reply I owe (responseRequired, unanswered)
   | "review" // task in review where I am a reviewer candidate
   | "flag"; // initiator flagged me but no specific derived item matched
@@ -68,7 +69,10 @@ export async function computeAttentionDigest(
     });
   }
 
-  // 2. Tasks assigned to me but not yet started.
+  // 2. Tasks assigned to me but not yet started, plus active work I already
+  //    picked but have not moved to review/done/block/drop. This keeps agents
+  //    autonomous after a post-pick interruption: once work is in-progress, the
+  //    task itself becomes the durable resume pointer.
   const backlog = await readBacklog(session);
   for (const task of backlog) {
     if (task.status === "assigned" && task.assigneeId === agentId) {
@@ -76,6 +80,13 @@ export async function computeAttentionDigest(
         kind: "assigned",
         pointer: task.id,
         summary: `${task.id} assigned to you, not yet picked: ${task.title}`,
+      });
+    }
+    if (task.status === "in-progress" && task.assigneeId === agentId) {
+      entries.push({
+        kind: "active",
+        pointer: task.id,
+        summary: `${task.id} in progress: ${task.title}`,
       });
     }
   }
