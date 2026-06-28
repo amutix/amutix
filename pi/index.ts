@@ -313,6 +313,10 @@ export default function (pi: ExtensionAPI) {
       const online = await getOnlineAgents(mySession).catch(() => [] as AgentInfo[]);
       const onlineIds = online.map((a) => a.id);
       await clearStaleReservations(mySession, onlineIds).catch(() => {});
+
+      // If attention arrived while the model turn was running, deliver it now
+      // through the same unified heartbeat path instead of waiting up to 30s.
+      await maybeDeliverAttentionDigest().catch(() => {});
     }
     if (currentCtx) {
       await refreshStatusWidget(currentCtx);
