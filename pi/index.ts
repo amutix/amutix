@@ -15,7 +15,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { FSWatcher } from "node:fs";
 import { mkdirSync, existsSync } from "node:fs";
 import {
   getSessionsDir,
@@ -67,7 +66,6 @@ import {
 } from "../core/prompt-context";
 import {
   computeAttentionDigest,
-  wakeableAttentionEntries,
   attentionSignature,
   shouldDeliverAttention,
   renderAttentionNotice,
@@ -80,9 +78,6 @@ import {
   markAsDelivered,
   confirmDelivered,
   appendToHistory,
-  watchInbox,
-  formatMessageAge,
-  type InboxMessage,
 } from "../core/messaging";
 import {
   checkConflict,
@@ -134,7 +129,7 @@ export default function (pi: ExtensionAPI) {
   let myRoleInstructions: string | undefined;
   let mySession: string | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  let inboxWatcher: FSWatcher | undefined;
+  let turnInProgress = false;
   let currentModelStr: string | undefined;
   let currentCtx: ExtensionContext | undefined;
 
@@ -147,32 +142,25 @@ export default function (pi: ExtensionAPI) {
     return myRoleName ? `[amutix:${addr} (${myRoleName})]` : `[amutix:${addr}]`;
   }
 
-  function inboxMessagePrefix(msg: InboxMessage): string {
-    const age = formatMessageAge(msg.timestamp);
-    const catStr = msg.category ? ` · ${msg.category}` : "";
-    const taskStr = msg.taskId ? ` · ${msg.taskId}` : "";
-    const responseStr = msg.responseRequired ? " · response requested" : "";
-    return msg.fromRole
-      ? `[amutix:${msg.fromSession}/${msg.fromName} (${msg.fromRole})${catStr}${taskStr}${responseStr} · sent ${age}]`
-      : `[amutix:${msg.fromSession}/${msg.fromName}${catStr}${taskStr}${responseStr} · sent ${age}]`;
-  }
-
-  function formatInboxDelivery(msg: InboxMessage): string {
-    let text = `${inboxMessagePrefix(msg)} ${msg.message}`;
-    if (msg.responseRequired) {
-      text += `\n\nResponse requested. Reply with amutix_send to ${formatAddress(msg.fromSession, msg.fromName)} and include inReplyTo: "${msg.id}".`;
+  function markDigestMessagesDelivered(entries: Awaited<ReturnType<typeof computeAttentionDigest>>): void {
+    if (!mySession || !myId) return;
+    for (const entry of entries) {
+      if (entry.kind !== "message" || !entry.filename || !entry.message) continue;
+      if (entry.filename.endsWith(".json")) {
+        appendToHistory(mySession, entry.message);
+        markAsDelivered(mySession, myId, entry.filename);
+      }
     }
-    return text;
   }
 
   async function maybeDeliverAttentionDigest(): Promise<void> {
-    if (!mySession || !myId) return;
+    if (!mySession || !myId || turnInProgress) return;
     const self = await findById(mySession, myId).catch(() => null);
     if (!self || !isEffectivelyOnline(self)) return;
 
     if (self.availability === "focus" || self.availability === "away") return;
 
-    const digest = wakeableAttentionEntries(await computeAttentionDigest(mySession, myId, self));
+    const digest = await computeAttentionDigest(mySession, myId, self);
     const signature = attentionSignature(digest);
     if (!shouldDeliverAttention({
       digest,
@@ -186,6 +174,7 @@ export default function (pi: ExtensionAPI) {
       attentionDeliveredAt: new Date().toISOString(),
       attentionDigestSig: signature,
     });
+    markDigestMessagesDelivered(digest);
     pi.sendUserMessage(renderAttentionNotice(digest), { deliverAs: "followUp" });
   }
 
@@ -211,31 +200,8 @@ export default function (pi: ExtensionAPI) {
       }
     }, HEARTBEAT_INTERVAL_MS);
 
-    // Start inbox watcher  -- deliver messages via pi.sendUserMessage
-    if (inboxWatcher) inboxWatcher.close();
-    inboxWatcher = watchInbox(mySession, myId, (msg, filename) => {
-      // Crash-safe: history first, then mark delivered, then queue
-      appendToHistory(mySession!, msg);
-      markAsDelivered(mySession!, myId!, filename);
-
-      pi.sendUserMessage(formatInboxDelivery(msg), {
-        deliverAs: "followUp",
-      });
-    });
-
-    // Deliver pending + crash-recovery messages
-    const recoverable = getRecoverableMessages(mySession, myId);
-    for (const { msg, filename } of recoverable) {
-      // Only append to history for new messages (not already-delivered ones)
-      if (filename.endsWith(".json")) {
-        appendToHistory(mySession, msg);
-        markAsDelivered(mySession, myId, filename);
-      }
-
-      pi.sendUserMessage(formatInboxDelivery(msg), {
-        deliverAs: "followUp",
-      });
-    }
+    // Inbox messages are not delivered by a separate watcher. They remain
+    // durable files and are picked up by the unified attention heartbeat.
 
     // Persist UUID in pi session (survives /reload)
     pi.appendEntry("amutix-agent", { id: myId, session: mySession });
@@ -243,17 +209,18 @@ export default function (pi: ExtensionAPI) {
     // Update titles and status widget
     updateTitles(ctx);
     await refreshStatusWidget(ctx);
+
+    // If this is a reload/recovery with pending durable attention, surface it
+    // through the same heartbeat path immediately rather than waiting 30s.
+    await maybeDeliverAttentionDigest().catch(() => {});
   }
 
   /** Cleanup on shutdown. */
   function stopAgent(): void {
+    turnInProgress = false;
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
-    }
-    if (inboxWatcher) {
-      inboxWatcher.close();
-      inboxWatcher = undefined;
     }
   }
 
@@ -326,13 +293,14 @@ export default function (pi: ExtensionAPI) {
   // -- Agent Status Tracking ------------------------------------
 
   pi.on("agent_start", async () => {
+    turnInProgress = true;
     if (mySession && myId) {
       await updateHeartbeat(mySession, myId).catch(() => {});
-      await maybeDeliverAttentionDigest().catch(() => {});
     }
   });
 
   pi.on("agent_end", async () => {
+    turnInProgress = false;
     if (mySession && myId) {
       await updateHeartbeat(mySession, myId).catch(() => {});
       await updateAgent(mySession, myId, {

@@ -17,6 +17,7 @@ import {
   getRecoverableMessages,
   readPendingReplies,
   messagePreview,
+  formatMessageAge,
   type InboxMessage,
 } from "./messaging.ts";
 import { readBacklog, type BacklogItem } from "./backlog.ts";
@@ -38,6 +39,10 @@ export interface AttentionEntry {
   pointer: string;
   /** One-line summary for the wake notice. */
   summary: string;
+  /** Inbox filename for message entries; used by adapters to mark delivered. */
+  filename?: string;
+  /** Raw inbox message for message entries; used by adapters to append history. */
+  message?: InboxMessage;
 }
 
 // ─── Digest ──────────────────────────────────────────────────
@@ -56,16 +61,25 @@ export async function computeAttentionDigest(
 ): Promise<AttentionEntry[]> {
   const entries: AttentionEntry[] = [];
 
-  // 1. Unread inbox messages (delivered but not yet confirmed processed).
+  // 1. Unread inbox messages. In the unified attention model, inbox writes do
+  //    not wake directly; they become durable attention entries picked up by
+  //    the heartbeat. Adapters mark .json files as .delivered only when the
+  //    digest is actually queued to the agent.
   const recoverable = getRecoverableMessages(session, agentId);
-  for (const { msg } of recoverable) {
+  for (const { msg, filename } of recoverable) {
     // Skip the catch-all system pings that the heartbeat itself emits — they
     // would otherwise feed the digest they were generated from.
     if (msg.notificationType === "attention-digest") continue;
+    const role = msg.fromRole ? ` (${msg.fromRole})` : "";
+    const cat = msg.category ? ` · ${msg.category}` : "";
+    const task = msg.taskId ? ` · ${msg.taskId}` : "";
+    const response = msg.responseRequired ? ` · response requested · inReplyTo ${msg.id}` : "";
     entries.push({
       kind: "message",
       pointer: msg.id,
-      summary: `Unread message from ${msg.fromName}: ${messagePreview(msg.message, 100)}`,
+      summary: `Message from ${msg.fromSession}/${msg.fromName}${role}${cat}${task}${response} · sent ${formatMessageAge(msg.timestamp)}: ${messagePreview(msg.message, 180)}`,
+      filename,
+      message: msg,
     });
   }
 
@@ -132,20 +146,6 @@ export async function computeAttentionDigest(
   return entries;
 }
 
-// ─── Wakeable subset ─────────────────────────────────────────
-
-/**
- * Entries that should produce a generic self-wake digest.
- *
- * Plain inbox messages are deliberately excluded here: the inbox watcher and
- * crash-recovery path already deliver concrete follow-ups containing the actual
- * message. Including them in the generic digest creates noisy duplicates like:
- * "You have outstanding attention" immediately followed by the real comment.
- */
-export function wakeableAttentionEntries(entries: AttentionEntry[]): AttentionEntry[] {
-  return entries.filter((e) => e.kind !== "message");
-}
-
 // ─── Signature (dedup / new-attention detection) ─────────────
 
 /**
@@ -208,5 +208,5 @@ export function shouldDeliverAttention(args: {
 export function renderAttentionNotice(entries: AttentionEntry[]): string {
   const lines = entries.slice(0, 8).map((e) => `• ${e.summary}`);
   const more = entries.length > 8 ? `\n…and ${entries.length - 8} more` : "";
-  return `You have outstanding attention. Reassess your work state, then act:\n${lines.join("\n")}${more}`;
+  return `You have outstanding attention:\n${lines.join("\n")}${more}`;
 }
