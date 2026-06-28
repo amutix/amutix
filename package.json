@@ -1,6 +1,6 @@
 {
   "name": "amutix",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Local coordination layer for AI agent teams: shared backlog, roles, reservations, review state, journal, and prompt context",
   "type": "module",
   "keywords": [
@@ -17,7 +17,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/amutix/amutix.git"
+    "url": "git+https://github.com/amutix/amutix.git"
   },
   "homepage": "https://github.com/amutix/amutix",
   "bugs": {
@@ -41,7 +41,7 @@
     "CHANGELOG.md"
   ],
   "bin": {
-    "amutix": "./cli/index.js"
+    "amutix": "cli/index.js"
   },
   "scripts": {
     "test": "node --experimental-strip-types test/parse.mjs && node --experimental-strip-types --test test/flows.ts"
