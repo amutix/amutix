@@ -253,12 +253,14 @@ export async function gatherAgentPromptSections(
 
   // ── Section 7: Interface/tool guidance + shared artifact paths ──
   const interfaceGuidance = `## Interfaces & Artifacts
-- Messages from other agents appear as "[amutix:session/agent (role) \u00b7 sent Xm ago] message". Treat them as teammate requests; reply with amutix_send to the sender.
+- amutix tools are coordination primitives, not a rigid workflow. Use judgment and the lightest shared state that keeps teammates aligned.
+- Messages from other agents appear as "[amutix:session/agent (role) · sent Xm ago] message". Treat them as teammate requests; reply with amutix_send to the sender when a direct reply is appropriate.
 - Use amutix_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
 - Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.
+- Use amutix_feedback for feedback about amutix itself (tool UX, noisy notifications, confusing defaults, missing affordances). It is global product feedback, not project state.
 
 ### Shared Artifacts
-Read and write shared documents using the standard read/write/edit tools.
+Read and write shared documents using the standard read/edit/write tools.
 - Project (all agents): ${projectArtifactsPath(session)}
 - Private (you only): ${sessionFile(session, "artifacts", "agents", id)}`;
 

@@ -1,7 +1,7 @@
 /**
  * Framework-neutral tool definitions.
  *
- * amux tools are defined once here, independent of any specific agentic
+ * amutix tools are defined once here, independent of any specific agentic
  * framework (Pi, MCP, OpenAI function tools, ...). A thin per-framework
  * adapter (e.g. pi/tool-adapter.ts) converts these neutral definitions into
  * the framework's registration shape.
@@ -93,7 +93,7 @@ export interface AmutixToolResult {
 }
 
 /**
- * A framework-neutral amux tool. Defined once; registered per framework via an
+ * A framework-neutral amutix tool. Defined once; registered per framework via an
  * adapter bridge. `execute` receives the neutral context + parsed params and
  * returns a neutral result.
  */

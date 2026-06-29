@@ -61,6 +61,22 @@ export function getSessionsDir(): string {
   return amutixHome;
 }
 
+/**
+ * Resolve a global amutix data file outside any project/session.
+ *
+ * This is for product-level data such as agent feedback about amutix itself,
+ * not project coordination state. With an explicit sessions dir (common in
+ * tests/embedders), global files live under `_global/` inside that root so
+ * they stay isolated from named project sessions.
+ */
+export function globalFile(...segments: string[]): string {
+  if (process.env.AMUTIX_HOME) return join(process.env.AMUTIX_HOME, ...segments);
+  if (process.env.AMUX_HOME) return join(process.env.AMUX_HOME, ...segments);
+  if (process.env.AMUTIX_SESSIONS_DIR) return join(process.env.AMUTIX_SESSIONS_DIR, "_global", ...segments);
+  if (process.env.AMUX_SESSIONS_DIR) return join(process.env.AMUX_SESSIONS_DIR, "_global", ...segments);
+  return join(homedir(), ".amutix", ...segments);
+}
+
 /** Get the directory path for a specific session. */
 export function sessionDir(session: string): string {
   return join(getSessionsDir(), session);

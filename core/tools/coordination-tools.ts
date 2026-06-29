@@ -39,6 +39,14 @@ import {
   type JournalEntry,
 } from "../journal.ts";
 import {
+  addFeedback,
+  readFeedback,
+  feedbackPath,
+  formatFeedbackEntry,
+  type FeedbackKind,
+  type FeedbackSeverity,
+} from "../feedback.ts";
+import {
   type AmutixToolContext,
   type AmutixToolDefinition,
   type AmutixToolResult,
@@ -305,7 +313,8 @@ export const journalTool: AmutixToolDefinition<JournalParams> = {
     "Use amutix_journal to record important decisions, things you've learned, and progress updates.",
     "Journal entries are shared across all agents and persist across sessions.",
     "Recent entries are automatically included in the system prompt for context.",
-    "When you discover ways to improve team alignment, code quality, or ways of working, capture them as a 'learning'  -- these shape how the team collaborates and raises the quality bar.",
+    "When you discover ways to improve team alignment, code quality, or ways of working within the current project, capture them as a 'learning'.",
+    "For feedback about amutix itself (tool UX, missing affordances, confusing defaults), use amutix_feedback instead of polluting the project journal.",
   ],
   inputSchema: objectSchema(
     {
@@ -344,6 +353,85 @@ export const journalTool: AmutixToolDefinition<JournalParams> = {
         const lines = entries.map((e) => `  ${formatJournalEntry(e)}`);
         const typeNote = params.type ? ` (${params.type})` : "";
         return { text: `Journal${typeNote} (${entries.length} entries):\n\n${lines.join("\n")}`, details: { entries } };
+      }
+      default:
+        throw new Error(`Unknown action: ${params.action}`);
+    }
+  },
+};
+
+
+// ─── amutix_feedback ──────────────────────────────────────────
+
+const FEEDBACK_ACTIONS = ["add", "list", "path"] as const;
+const FEEDBACK_KINDS = ["issue", "suggestion", "friction", "praise", "other"] as const;
+const FEEDBACK_SEVERITIES = ["low", "medium", "high"] as const;
+type FeedbackAction = typeof FEEDBACK_ACTIONS[number];
+
+interface FeedbackParams {
+  action: FeedbackAction;
+  kind?: FeedbackKind;
+  message?: string;
+  severity?: FeedbackSeverity;
+  area?: string;
+  limit?: number;
+}
+
+export const feedbackTool: AmutixToolDefinition<FeedbackParams> = {
+  name: "amutix_feedback",
+  aliases: ["amux_feedback"],
+  label: "amutix Feedback",
+  description:
+    "Record or review agent feedback about amutix itself, independent of any project backlog/journal. " +
+    "Use this for tool UX issues, confusing coordination defaults, missing affordances, and improvement suggestions — not for project task coordination.",
+  promptSnippet: "Record project-independent feedback about amutix itself",
+  promptGuidelines: [
+    "Use amutix_feedback when you notice an issue, friction point, confusing default, or improvement idea about amutix itself.",
+    "Do not use amutix_feedback for project decisions, task handoffs, blockers, or team-specific learnings; use task comments, discussions, or journal for those.",
+    "Feedback is global product feedback, stored outside the current project/session so it can improve amutix across projects.",
+  ],
+  inputSchema: objectSchema(
+    {
+      action: enumProp(FEEDBACK_ACTIONS, "Action to perform"),
+      kind: enumProp(FEEDBACK_KINDS, "Feedback kind (required for add)"),
+      message: optionalStringProp("Feedback message (required for add)"),
+      severity: enumProp(FEEDBACK_SEVERITIES, "Optional severity"),
+      area: optionalStringProp("Optional product area, e.g. attention, notifications, tasks, prompt, docs"),
+      limit: { type: "number", description: "Number of recent feedback entries to list (default 20)" },
+    },
+    ["action"],
+  ),
+
+  async execute(ctx, params): Promise<AmutixToolResult> {
+    switch (params.action) {
+      case "add": {
+        if (!params.kind) throw new Error("Feedback kind is required for add.");
+        if (!params.message) throw new Error("Feedback message is required for add.");
+        const entry = addFeedback({
+          kind: params.kind,
+          severity: params.severity,
+          area: params.area,
+          message: params.message,
+          session: ctx.session,
+          agentId: ctx.agentId,
+          agentName: ctx.agentName,
+          roleName: ctx.roleName,
+        });
+        return {
+          text: `✓ amutix feedback recorded: ${formatFeedbackEntry(entry)}`,
+          details: { entry, path: feedbackPath() },
+        };
+      }
+      case "list": {
+        const entries = readFeedback(params.limit ?? 20);
+        if (entries.length === 0) return { text: "No amutix feedback recorded yet.", details: { entries: [] } };
+        return {
+          text: `amutix feedback (${entries.length} recent):\n${entries.map((e) => formatFeedbackEntry(e)).join("\n")}`,
+          details: { entries, path: feedbackPath() },
+        };
+      }
+      case "path": {
+        return { text: feedbackPath(), details: { path: feedbackPath() } };
       }
       default:
         throw new Error(`Unknown action: ${params.action}`);

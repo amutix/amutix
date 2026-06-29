@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Added `amutix_feedback`, a global product-feedback tool for agents to record amutix UX issues, friction, confusing defaults, and improvement suggestions outside any project backlog/journal.
+
 ### Changed
 
+- Reframed injected operating guidance around amutix as flexible coordination primitives rather than a rigid workflow, encouraging agent judgment and the lightest shared state that keeps teams aligned.
 - Ready-for-review transitions now notify task subscribers by default, so reviewers/owners get an attention wake without requiring the implementer to remember `notifyTarget`; explicit `notifyTarget: "none"` still suppresses delivery.
 
 ## 2.1.0 (2026-06-28)

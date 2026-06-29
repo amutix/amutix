@@ -88,6 +88,7 @@ import {
   roleTool,
   reserveTool,
   journalTool,
+  feedbackTool,
   taskTool,
   objectSchema,
   optionalBoolProp,
@@ -3112,10 +3113,13 @@ describe("Prompt assembly", () => {
   });
 
   it("COMMON_PRINCIPLES contains the collaboration contract", () => {
+    assert.ok(COMMON_PRINCIPLES.includes("coordination primitives"));
+    assert.ok(COMMON_PRINCIPLES.includes("Use judgment"));
     assert.ok(COMMON_PRINCIPLES.includes("State is the source of truth"));
     assert.ok(COMMON_PRINCIPLES.includes("amutix_task comment"));
-    assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
-    assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
+    assert.ok(COMMON_PRINCIPLES.includes("Use structure when it helps"));
+    assert.ok(COMMON_PRINCIPLES.includes("Review with intent"));
+    assert.ok(COMMON_PRINCIPLES.includes("amutix_feedback"));
   });
 });
 
@@ -3216,6 +3220,7 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.ok(names.includes("amutix_role"));
     assert.ok(names.includes("amutix_reserve"));
     assert.ok(names.includes("amutix_journal"));
+    assert.ok(names.includes("amutix_feedback"));
     // Canonical name lookups resolve to canonical name
     assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
     assert.equal(getAmutixTool("amutix_project")!.name, "amutix_project");
@@ -3225,9 +3230,11 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.equal(getAmutixTool("amutix_role")!.name, "amutix_role");
     assert.equal(getAmutixTool("amutix_reserve")!.name, "amutix_reserve");
     assert.equal(getAmutixTool("amutix_journal")!.name, "amutix_journal");
+    assert.equal(getAmutixTool("amutix_feedback")!.name, "amutix_feedback");
     // Legacy alias names resolve to canonical name (back-compat, removed in 3.0)
     assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
     assert.equal(getAmutixTool("amutix_task")!.name, "amutix_task");
+    assert.equal(getAmutixTool("amux_feedback")!.name, "amutix_feedback");
     assert.equal(normalizeToolName("amutix_role"), "amutix_role");
     assert.equal(normalizeToolName("amutix_role"), "amutix_role");
     assert.equal(getAmutixTool("nonexistent"), undefined);
@@ -3303,6 +3310,10 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.deepEqual(journalTool.inputSchema.required, ["action"]);
     assert.deepEqual(journalTool.inputSchema.properties.action.enum, ["add", "list"]);
     assert.deepEqual(journalTool.inputSchema.properties.type.enum, ["decision", "learning", "progress"]);
+
+    assert.equal(feedbackTool.name, "amutix_feedback");
+    assert.deepEqual(feedbackTool.inputSchema.required, ["action"]);
+    assert.deepEqual(feedbackTool.inputSchema.properties.action.enum, ["add", "list", "path"]);
 
     assert.equal(taskTool.name, "amutix_task");
     assert.deepEqual(taskTool.inputSchema.properties.notifyTarget.enum, ["none", "subscribers", "all", "agents"]);
@@ -3461,6 +3472,26 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     const list = await journalTool.execute(ctx, { action: "list", type: "decision", limit: 5 });
     assert.ok(list.text.includes("Journal (decision)"));
     assert.ok(list.text.includes("Prefer neutral tool modules"));
+  });
+
+  it("amutix_feedback records product feedback outside project state", async () => {
+    const add = await feedbackTool.execute(ctx, {
+      action: "add",
+      kind: "suggestion",
+      severity: "medium",
+      area: "prompt",
+      message: "Make coordination guidance less rigid and more judgment-oriented.",
+    });
+    assert.ok(add.text.includes("✓ amutix feedback recorded:"));
+    assert.ok(add.text.includes("suggestion/medium [prompt]"));
+    assert.ok(!String(add.details.path).includes(`${ctx.session}/`));
+
+    const list = await feedbackTool.execute(ctx, { action: "list", limit: 5 });
+    assert.ok(list.text.includes("amutix feedback"));
+    assert.ok(list.text.includes("Make coordination guidance less rigid"));
+
+    const path = await feedbackTool.execute(ctx, { action: "path" });
+    assert.equal(path.text, add.details.path);
   });
 });
 

@@ -12,6 +12,7 @@ export * from "./messaging";
 export * from "./backlog";
 export * from "./reservations";
 export * from "./journal";
+export * from "./feedback";
 export * from "./task-comments";
 export * from "./project-context";
 export * from "./renderers";
