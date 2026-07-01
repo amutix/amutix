@@ -12,6 +12,13 @@ Use amutix when you already have multiple coding agents or sessions and need the
 
 amutix is the coordination layer between agents and their work. It is not an LLM runtime, terminal pane manager, hosted agent platform, workflow DAG engine, or automatic planner. Those tools decide where agents run; amutix keeps what they are doing aligned, durable, reviewable, and visible.
 
+## Key Problems Solved
+
+- **No more invisible work ownership**: backlog state, task comments, and review handoffs show who owns what and why.
+- **Fewer edit conflicts**: advisory file reservations let agents claim paths before editing, with owner/work context visible to teammates.
+- **Less scattered coordination**: task-scoped comments, discussions, and journal entries keep decisions attached to durable project state instead of transient chat.
+- **Safer multi-agent workspaces**: workspace intent, cwd/topology checks, and review handoffs make shared-working-tree risks visible without taking over your terminal setup.
+
 ## What the coordination layer owns
 
 - **Project context**: shared goal, constraints, and direction
@@ -48,6 +55,23 @@ core/                          Host-runtime independent coordination library
 
 pi/                            Pi adapter: tools, commands, prompt injection
 cli/                           Read-only CLI over shared core services
+```
+
+No-magic data flow:
+
+```text
+Pi / host runtime / IDE
+        |
+        | calls command or model-facing tool
+        v
+amutix adapter / tool surface
+        |
+        | reads/writes shared state through core services
+        v
+~/.amutix/sessions/<project>/
+        |
+        +-- JSON:  agents, backlog, roles, config, reservations
+        +-- JSONL: task comments, journal, messages/inboxes
 ```
 
 See [VISION.md](./VISION.md) for the full vision, principles, and rationale.
@@ -195,44 +219,39 @@ amutix **appends** a coordination block to the host agent runtime's base system 
 
 Task assignments are **state-derived** — agents discover their tasks from the current backlog, not from queued inbox messages. This ensures task context is always current and never stale. `amutix_next` is the lightweight cockpit for checking current pointers; use task comments, reviews, and lifecycle actions for coordination changes.
 
+Human-facing Pi/CLI commands:
+
 ```bash
-# View compact task details
-/amutix work show TASK-01
-/amutix show TASK-01        # shortcut
-amutix_task({ action: "show", id: "TASK-01" })
-
-# Add a task-scoped comment (like PR comments)
-amutix_task({ action: "comment", id: "TASK-01", content: "Looks good, one suggestion..." })
-
 # Compact project progress overview
 /amutix work
 /amutix progress            # shortcut
+amutix work                 # read-only CLI
+
+# View compact task details
+/amutix work show TASK-01
+/amutix show TASK-01        # shortcut
+amutix work show TASK-01    # read-only CLI
+```
+
+When shaping larger work, create the high-level item first (`initiative` or `milestone`), add child executable items, review the structure with `/amutix progress`, then assign the leaf work. Assign `task`/`bug`/`chore`/`spec` items rather than container items unless you intentionally want broad ownership.
+
+#### Under the hood / agent tools
+
+Agent runtimes use `amutix_task` for durable task lifecycle changes. These examples are model/tool calls, not commands a human types into a shell:
+
+```typescript
 amutix_task({ action: "summary" })
+amutix_task({ action: "show", id: "TASK-01" })
+amutix_task({ action: "comment", id: "TASK-01", content: "Looks good, one suggestion..." })
 amutix_task({ action: "plan", id: "TASK-01", content: "# Plan\n..." })
+amutix_task({ action: "pick", id: "TASK-01", reason: "Starting implementation" })
 amutix_task({ action: "review", id: "TASK-01", summary: "Branch agent/dev. Diff: ... Tests: npm test. Risks: ..." })
-amutix_task({ action: "archive" })   # Move done items out of the active backlog
+amutix_task({ action: "archive" })   // Move done items out of the active backlog
 ```
-
-Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Task comments are durable and notify relevant subscribers by default (assignee, creator, previous commenters, and `@AgentName` mentions); pass `notify: false` or `silent: true` for a quiet note. When a lifecycle change needs another agent's attention (ready for review, blocked, unblocked, dependency handoff, help needed), add a task comment mentioning that agent; do not reassign work just to notify. Agent prompts include only compact latest substantive task-discussion previews; full comment history stays pull-based via `amutix_task show`. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Use `archive` to move done items that are no longer needed for ongoing implementation out of the active backlog. Simple workflows can still mark work done directly. Use `amutix_send` only for exceptional non-task communication; delivered messages show intent and age so stale context is visible.
-
-For direct messages that need an answer, set `responseRequired: true`; `brainstorm` messages default to requiring a response. Pending replies are shown in the sender's prompt until the recipient replies with `inReplyTo`.
-
-### Team discussions
-
-Use `amutix_discussion` for cross-cutting multi-party collaboration such as retros, brainstorms, design jams, and syncs. Keep task-scoped discussion on `amutix_task comment`; discussions are for topics whose audience is a group rather than one task thread.
-
-```bash
-amutix_discussion({ action: "start", topic: "Retro: v1.2", kind: "retro", audience: "all" })
-amutix_discussion({ action: "start", topic: "Storage design", audience: "agents", participants: ["Lead", "Developer2"] })
-amutix_discussion({ action: "post", id: "DISC-01", content: "One option is..." })
-amutix_discussion({ action: "close", id: "DISC-01", summary: "Outcome: use append-only JSONL." })
-```
-
-Audience controls expected participation and notifications, not access control. `all` resolves all same-session agents at creation time; `agents` resolves the explicit same-session participants. Open discussions appear in prompts as compact metadata only; full discussion text is shown on demand with `show`.
 
 For token-efficient review handoff, include a compact free-form summary when marking work ready for review:
 
-```bash
+```typescript
 amutix_task({
   action: "review",
   id: "TASK-01",
@@ -240,9 +259,11 @@ amutix_task({
 })
 ```
 
+Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Task comments are durable and notify relevant subscribers by default (assignee, creator, previous commenters, and `@AgentName` mentions); pass `notify: false` or `silent: true` for a quiet note. When a lifecycle change needs another agent's attention (ready for review, blocked, unblocked, dependency handoff, help needed), add a task comment mentioning that agent; do not reassign work just to notify. Agent prompts include only compact latest substantive task-discussion previews; full comment history stays pull-based via `amutix_task show`. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Use `archive` to move done items that are no longer needed for ongoing implementation out of the active backlog. Simple workflows can still mark work done directly. Use `amutix_send` only for exceptional non-task communication; delivered messages show intent and age so stale context is visible.
+
 Reviewer flow: read the linked spec, inspect the diff, inspect test output, then add a task comment or mark the item done. This keeps review scoped to spec + diff + tests instead of reloading broad project context.
 
-When shaping larger work, create the high-level item first (`initiative` or `milestone`), add child executable items, review the structure with `/amutix progress`, then assign the leaf work. Assign `task`/`bug`/`chore`/`spec` items rather than container items unless you intentionally want broad ownership.
+For direct messages that need an answer, set `responseRequired: true`; `brainstorm` messages default to requiring a response. Pending replies are shown in the sender's prompt until the recipient replies with `inReplyTo`.
 
 **Documentation types:**
 
@@ -253,6 +274,32 @@ When shaping larger work, create the high-level item first (`initiative` or `mil
 | Journal | Decisions, learnings, progress shared across agents | `amutix_journal add` |
 
 **Recommended workflow:** Create a high-level initiative with child tasks, assign all executable leaves to the intended agent(s) upfront, and let `dependsOn` enforce ordering. The assignee picks one task at a time after completing the current one. Auto-pick (`amutix_task pick` without an ID) prefers assigned-to-self items with met dependencies before open todo items.
+
+### Team discussions
+
+Use discussions for cross-cutting multi-party collaboration such as retros, brainstorms, design jams, and syncs. Keep task-scoped discussion on `amutix_task comment`; discussions are for topics whose audience is a group rather than one task thread.
+
+Human-facing ways to inspect discussion-related state:
+
+```bash
+/amutix prompt discussions   # compact open-discussion prompt section, when present
+/amutix prompt all           # full amutix-appended prompt block, including discussion metadata
+amutix work                  # read-only progress overview; task discussion stays attached to tasks
+```
+
+#### Under the hood / agent tools
+
+Agent runtimes use `amutix_discussion` to start, post to, list, show, and close discussions:
+
+```typescript
+amutix_discussion({ action: "start", topic: "Retro: v1.2", kind: "retro", audience: "all" })
+amutix_discussion({ action: "start", topic: "Storage design", audience: "agents", participants: ["Lead", "Developer2"] })
+amutix_discussion({ action: "post", id: "DISC-01", content: "One option is..." })
+amutix_discussion({ action: "show", id: "DISC-01" })
+amutix_discussion({ action: "close", id: "DISC-01", summary: "Outcome: use append-only JSONL." })
+```
+
+Audience controls expected participation and notifications, not access control. `all` resolves all same-session agents at creation time; `agents` resolves the explicit same-session participants. Open discussions appear in prompts as compact metadata only; full discussion text is shown on demand with `show`.
 
 ### Backlog Model
 
@@ -295,7 +342,7 @@ The canonical model-facing names use the `amutix_*` prefix. Legacy `amux_*` alia
 | `amutix_reserve` | claim, release, list | Advisory file/directory reservations |
 | `amutix_journal` | add, list | Record durable decisions, learnings, and progress |
 | `amutix_feedback` | add, list, path | Record project-independent feedback about amutix itself |
-| `amutix_agent` | register | Register agent identities in the current project session |
+| `amutix_agent` | register, update, list, validate-team, plan-workspace, create-workspace, assign-workspace, request-user-action | Manage agent identities, workspace intent, topology validation, and human runtime handoffs |
 | `amutix_task` | add, list, show, comment, plan, edit-plan, assign, pick, review, done, drop, block, archive, summary | Backlog lifecycle with task comments, linked specs, dependencies, batch assignment, review, and archive |
 | `amutix_next` | -- | Read-only state digest/cockpit with identity, attention, awaiting replies, relevant work, reservations, reviews, discussions, and safe next pointers |
 
@@ -356,6 +403,64 @@ amutix is built for a lead agent (e.g. the `lead-architect` role) to turn high-l
 10. **Report** — give the user a clear outcome: what shipped, files/commits, tests, decisions, risks, next steps.
 
 This workflow is guidance, not magic automation — the lead agent orchestrates through the existing primitives (`amutix_task`, `amutix_project`, reservations, journal). There is no auto-decomposition action; decomposition is the lead's judgment and stays reviewable.
+
+## Human-in-the-loop Team Management
+
+amutix can manage **team topology state** — agent identities, roles, preferred models, intended workspaces, workspace plans, and topology risks — but it does **not** manage terminals, panes, or live model processes for you.
+
+Humans still perform host/runtime actions:
+
+- open a terminal or pane
+- `cd` into the intended worktree
+- start Pi or another host runtime
+- run `/amutix join` as the intended agent
+- approve high-risk workspace or topology changes
+
+Human-facing Pi/CLI commands come first:
+
+```bash
+# Inspect current team/work state
+/amutix team
+/amutix work
+amutix team --session myapp
+
+# Create or join an agent identity from Pi
+/amutix new agent Developer --role developer --workspace worktree
+cd /path/to/main-developer && pi
+/amutix join
+
+# Check workspace state from the running agent
+/amutix workspace
+```
+
+### Under the hood / agent tools
+
+Lead agents can make those human actions faster and safer by using `amutix_agent` tool actions. These update durable topology/workspace state and produce clear handoff text; they do not open terminals or move live processes.
+
+```typescript
+amutix_agent({ action: "list" })
+amutix_agent({ action: "validate-team" })
+amutix_agent({ action: "plan-workspace", name: "Developer" })
+amutix_agent({ action: "create-workspace", name: "Developer", repoPath: "/path/to/main" })
+amutix_agent({ action: "assign-workspace", name: "Developer", workspace: "/path/to/main-developer" })
+amutix_agent({ action: "request-user-action", name: "Developer", workspace: "/path/to/main-developer" })
+```
+
+A typical handoff looks like:
+
+1. Lead applies roles/templates and registers the intended agent.
+2. Lead plans a dedicated worktree (`plan-workspace`) and checks risks (`validate-team`).
+3. If safe and execution is available, lead creates the worktree (`create-workspace`).
+4. Lead assigns workspace metadata (`assign-workspace`). This records **registry intent**; it does not move a running process.
+5. amutix emits a clear human action request, for example: “Open a terminal, `cd /path/to/worktree`, start Pi, then `/amutix join` as Developer.”
+6. Once the runtime joins from that cwd, topology signals clear naturally from authoritative state.
+
+Guardrails:
+
+- Workspace assignment is not task ownership.
+- Do not claim a live agent moved cwd unless the runtime actually joins from that path.
+- Use `validate-team` / `amutix_next` topology signals to catch shared cwd/workspace risks.
+- Focus/away agents should not be nagged for non-urgent topology cleanup.
 
 ### Prompt composition
 
@@ -434,6 +539,28 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 - **Git workspaces** -- isolated worktrees per agent
 - **Built-in roles** -- ready to use, customizable per project
 - **Zero dependencies** -- just Node.js
+
+## FAQ
+
+### How is amutix different from pi-messenger?
+
+pi-messenger-style tools are useful for direct message passing between running Pi sessions. amutix is a broader coordination layer: backlog ownership, task comments, reservations, reviews, roles, workspace intent, journal entries, and prompt context are durable project state rather than only chat messages.
+
+### Bring Your Own Terminal / no subprocess management
+
+amutix does not spawn agents, open panes, or supervise subprocesses. Humans or host tools decide where agents run. amutix records identity, work, workspace intent, topology risks, and handoff text so those human/runtime actions stay coordinated.
+
+### Framework-agnostic file-backed core
+
+Pi is the first full adapter, but amutix core is framework-agnostic. State lives in local JSON/JSONL files under `~/.amutix/sessions/`, and other hosts can call the same core services or neutral tool registry.
+
+### Zero UI intrusion
+
+amutix does not require a hosted dashboard, terminal multiplexer, or IDE overlay. It surfaces state through Pi commands, model-facing tools, prompt context, and a read-only CLI while leaving your existing workspace UI alone.
+
+### State-driven vs chat-driven coordination
+
+Chat is useful for conversation, but team delivery needs durable source-of-truth state: assigned work, comments attached to tasks, file reservations, review handoffs, and decisions that survive restarts. amutix keeps direct messages available for exceptional cases while making the shared project state the coordination backbone.
 
 ## Session Files
 

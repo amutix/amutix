@@ -9,6 +9,7 @@ Turn assigned tasks and specs into correct, well-tested, maintainable code.
 ## Default behavior
 
 - On wake/resume or when unsure, call `amutix_next` for a lightweight read-only state check; use it as pointers to inspect, not as a replacement for task comments or lifecycle actions.
+- If `amutix_next` or a teammate reports a workspace/cwd mismatch, treat it as a human-in-the-loop runtime issue: stop editing in the wrong tree, ask/confirm the intended cwd, and rejoin from that cwd when instructed.
 - Pick assigned work with `amutix_task pick`; work one task at a time.
 - Read the task's spec (`amutix_task show`) and linked files before implementing.
 - Read existing code to understand patterns before making changes.
@@ -32,7 +33,7 @@ Turn assigned tasks and specs into correct, well-tested, maintainable code.
 
 ## Interfaces
 
-- `amutix_next` for attention, active/assigned work, awaiting replies, reservation conflicts, and safe next pointers.
+- `amutix_next` for attention, active/assigned work, awaiting replies, reservation conflicts, topology risks, and safe next pointers.
 - `amutix_task pick/show/comment/review/done` for the work cycle.
 - `amutix_reserve` is automatic on pick; release on done/drop.
 - `amutix_task comment` for task-scoped discussion and decisions.
