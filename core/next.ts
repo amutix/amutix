@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { normalize, resolve } from "node:path";
 
 import type { AttentionKind } from "./attention.ts";
 import { readBacklog, unmetDependencies, type BacklogItem } from "./backlog.ts";
@@ -32,6 +33,7 @@ import {
   type Reservation,
 } from "./reservations.ts";
 import { appendJsonlSync, readJsonlSync, sessionFile } from "./storage.ts";
+import { detectTeamTopologyRisks, workspaceHumanActionText, type TeamTopologyRisk } from "./team-service.ts";
 
 export type AmutixNextAttentionKind = AttentionKind;
 
@@ -130,6 +132,18 @@ export interface AmutixNextReservationDigest {
   relevantConflicts: AmutixNextReservationRef[];
 }
 
+export interface AmutixNextTopologyRiskRef {
+  kind: string;
+  severity: "low" | "medium" | "high";
+  summary: string;
+  agentIds: string[];
+  path?: string;
+  reservationPath?: string;
+  taskId?: string;
+  affectedMe: boolean;
+  humanAction?: string;
+}
+
 export interface AmutixNextProjectDigest {
   openWork: number;
   counts: Record<string, number>;
@@ -141,11 +155,12 @@ export interface AmutixNextProjectDigest {
     audience: string;
     lastActivityAt: string;
   }>;
+  topologyRisks: AmutixNextTopologyRiskRef[];
 }
 
 export interface AmutixNextPointer {
   /** Pointer category; adapters should not treat this as an instruction. */
-  kind: "attention" | "task" | "reply" | "review" | "reservation" | "discussion" | "journal" | "none";
+  kind: "attention" | "task" | "reply" | "review" | "reservation" | "topology" | "discussion" | "journal" | "none";
   /** Human-readable reason this pointer is relevant now. */
   rationale: string;
   /** Stable identifier or path to inspect, when applicable. */
@@ -202,6 +217,7 @@ export type CoordinationSignalKind =
   | "review-authored"
   | "blocked"
   | "reservation-conflict"
+  | "topology-risk"
   | "discussion"
   | "flag";
 
@@ -218,6 +234,7 @@ export interface CoordinationSignal {
   inspect?: { tool: string; params: Record<string, unknown> };
   message?: InboxMessage;
   task?: BacklogItem;
+  topologyRisk?: AmutixNextTopologyRiskRef;
 }
 
 export interface NextDigestContext {
@@ -249,6 +266,7 @@ export interface CoordinationSignalDigest {
   relevantReservationConflicts: AmutixNextReservationRef[];
   openReviewHandoffs: BacklogItem[];
   openDiscussions: AmutixNextProjectDigest["openDiscussions"];
+  topologyRisks: AmutixNextTopologyRiskRef[];
   counts: Record<string, number>;
   openWork: number;
 }
@@ -300,6 +318,33 @@ function reservationRef(args: {
     stale: owner ? !isEffectivelyOnline(owner) : true,
     relatedTaskId: reservationTaskId(args.reservation) || undefined,
     conflictsWith: args.conflictsWith,
+  };
+}
+
+function roleLooksLead(agent: Pick<AgentInfo, "role" | "roleName">): boolean {
+  const value = `${agent.roleName || ""} ${agent.role || ""}`.toLowerCase();
+  return /lead|architect|planner|coordinator/.test(value);
+}
+
+function normalizePathForCompare(path?: string): string | undefined {
+  return path ? normalize(resolve(path)) : undefined;
+}
+
+function topologyRiskRef(risk: TeamTopologyRisk, agentId: string, agent?: AgentInfo): AmutixNextTopologyRiskRef {
+  const affectedMe = risk.agentIds.includes(agentId);
+  const humanAction = affectedMe && agent?.workspace
+    ? workspaceHumanActionText(agent.name, agent.workspace, agent.session)
+    : undefined;
+  return {
+    kind: risk.kind,
+    severity: risk.severity,
+    summary: risk.summary,
+    agentIds: risk.agentIds,
+    path: risk.path,
+    reservationPath: risk.reservationPath,
+    taskId: risk.taskId,
+    affectedMe,
+    humanAction,
   };
 }
 
@@ -430,7 +475,33 @@ export async function deriveCoordinationSignals(ctx: NextDigestContext): Promise
     }
   }
 
-  const attentionRelevant = signals.filter((s) => ["message", "assigned-ready", "assigned-waiting", "active", "awaiting-reply", "targeted-review", "blocked", "reservation-conflict", "discussion"].includes(s.kind));
+  const isLead = agent ? roleLooksLead(agent) : false;
+  const allTopologyRisks = (await detectTeamTopologyRisks(ctx.session))
+    .map((risk) => topologyRiskRef(risk, ctx.agentId, agent || undefined));
+  if (agent?.workspace && normalizePathForCompare(agent.cwd) !== normalizePathForCompare(agent.workspace)) {
+    allTopologyRisks.push({
+      kind: "workspace-cwd-mismatch",
+      severity: "medium",
+      summary: `${agent.name} has workspace intent ${agent.workspace} but is currently running in ${agent.cwd}.`,
+      agentIds: [agent.id],
+      path: agent.workspace,
+      affectedMe: true,
+      humanAction: workspaceHumanActionText(agent.name, agent.workspace, agent.session),
+    });
+  }
+  const topologyRisks = isLead ? allTopologyRisks : allTopologyRisks.filter((risk) => risk.affectedMe);
+  for (const risk of topologyRisks) {
+    signals.push({
+      kind: "topology-risk",
+      key: `topology:${risk.kind}:${risk.path || risk.reservationPath || ""}:${risk.agentIds.join(",")}`,
+      path: risk.path || risk.reservationPath,
+      topologyRisk: risk,
+      summary: risk.humanAction ? `${risk.summary} ${risk.humanAction}` : risk.summary,
+      inspect: { tool: "amutix_agent", params: { action: "validate-team" } },
+    });
+  }
+
+  const attentionRelevant = signals.filter((s) => ["message", "assigned-ready", "assigned-waiting", "active", "awaiting-reply", "targeted-review", "blocked", "reservation-conflict", "topology-risk", "discussion"].includes(s.kind));
   if (attentionRelevant.length === 0 && agent?.attentionPending) {
     signals.push({ kind: "flag", key: "flag:attention-pending", summary: "A teammate flagged you for attention — reassess current state." });
   }
@@ -461,6 +532,7 @@ export async function deriveCoordinationSignals(ctx: NextDigestContext): Promise
     relevantReservationConflicts,
     openReviewHandoffs: backlog.filter((t) => t.status === "review"),
     openDiscussions,
+    topologyRisks,
     counts,
     openWork,
   };
@@ -476,6 +548,7 @@ function attentionEntryFromSignal(signal: CoordinationSignal): AmutixNextAttenti
     case "targeted-review": return { kind: "review", pointer: signal.taskId || signal.key, summary: signal.summary, taskId: signal.taskId };
     case "blocked": return { kind: "blocked", pointer: signal.taskId || signal.key, summary: signal.summary, taskId: signal.taskId };
     case "reservation-conflict": return { kind: "reservation", pointer: signal.path || signal.key, summary: signal.summary, path: signal.path };
+    case "topology-risk": return { kind: "topology", pointer: signal.path || signal.key, summary: signal.summary, path: signal.path };
     case "discussion": return { kind: "discussion", pointer: signal.discussionId || signal.key, summary: signal.summary, discussionId: signal.discussionId };
     case "flag": return { kind: "flag", pointer: "", summary: signal.summary };
     default: return null;
@@ -497,11 +570,12 @@ function nextPointers(args: {
   full: boolean;
 }): AmutixNextPointer[] {
   const pointers = args.signals
-    .filter((s) => ["message", "assigned-ready", "active", "awaiting-reply", "targeted-review", "reservation-conflict", "discussion", "blocked"].includes(s.kind))
+    .filter((s) => ["message", "assigned-ready", "active", "awaiting-reply", "targeted-review", "reservation-conflict", "topology-risk", "discussion", "blocked"].includes(s.kind))
     .map((s): AmutixNextPointer => ({
       kind: s.kind === "awaiting-reply" ? "reply"
         : s.kind === "targeted-review" ? "review"
         : s.kind === "reservation-conflict" ? "reservation"
+        : s.kind === "topology-risk" ? "topology"
         : s.kind === "assigned-ready" || s.kind === "active" || s.kind === "blocked" ? "task"
         : s.kind === "message" ? "attention"
         : s.kind,
@@ -549,6 +623,7 @@ export async function buildAmutixNextDetails(ctx: NextDigestContext, full: boole
       counts: digest.counts,
       openReviewHandoffs: cap(digest.openReviewHandoffs.map((t) => taskRef(t, digest.backlog)), full, 8),
       openDiscussions: cap(digest.openDiscussions, full, 5),
+      topologyRisks: cap(digest.topologyRisks, full, 8),
     },
     next: nextPointers({ signals: digest.signals, full }),
   };

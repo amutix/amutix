@@ -27,6 +27,7 @@ export type AttentionKind =
   | "review" // task where review was explicitly requested from me
   | "blocked" // blocked work I own
   | "reservation" // reservation conflict relevant to my planned files
+  | "topology" // workspace/team topology risk relevant to me or lead role
   | "discussion" // open discussion activity involving me
   | "flag"; // initiator flagged me but no specific derived item matched
 
@@ -68,13 +69,14 @@ export async function computeAttentionDigest(
 ): Promise<AttentionEntry[]> {
   const digest = await deriveCoordinationSignals({ session, agentId, agentName: "", roleName: undefined });
   return digest.signals
-    .filter((signal) => ["message", "assigned-ready", "assigned-waiting", "active", "awaiting-reply", "targeted-review", "blocked", "reservation-conflict", "discussion", "flag"].includes(signal.kind))
+    .filter((signal) => ["message", "assigned-ready", "assigned-waiting", "active", "awaiting-reply", "targeted-review", "blocked", "reservation-conflict", "topology-risk", "discussion", "flag"].includes(signal.kind))
     .map((signal) => {
       const entry: AttentionEntry = {
         kind: signal.kind === "assigned-ready" || signal.kind === "assigned-waiting" ? "assigned"
           : signal.kind === "awaiting-reply" ? "reply"
           : signal.kind === "targeted-review" ? "review"
           : signal.kind === "reservation-conflict" ? "reservation"
+          : signal.kind === "topology-risk" ? "topology"
           : signal.kind,
         pointer: signal.taskId || signal.replyId || signal.messageId || signal.path || signal.discussionId || "",
         summary: signal.summary,
