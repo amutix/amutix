@@ -17,6 +17,7 @@ import { projectTool, wowTool } from "./project-tools.ts";
 import { sendTool, broadcastTool, discussionTool } from "./communication-tools.ts";
 import { roleTool, reserveTool, journalTool, feedbackTool, agentTool } from "./coordination-tools.ts";
 import { taskTool } from "./backlog-tools.ts";
+import { nextTool } from "./status-tools.ts";
 
 export * from "./types.ts";
 export { artifactsTool, listTool } from "./pilot-tools.ts";
@@ -24,10 +25,11 @@ export { projectTool, wowTool } from "./project-tools.ts";
 export { sendTool, broadcastTool, discussionTool } from "./communication-tools.ts";
 export { roleTool, reserveTool, journalTool, feedbackTool, agentTool } from "./coordination-tools.ts";
 export { taskTool } from "./backlog-tools.ts";
+export { nextTool } from "./status-tools.ts";
 
 /** All registered neutral amutix tools, in registration order. */
 export function allAmutixTools(): AmutixToolDefinition[] {
-  return [artifactsTool, listTool, projectTool, wowTool, sendTool, broadcastTool, discussionTool, roleTool, reserveTool, journalTool, feedbackTool, agentTool, taskTool];
+  return [artifactsTool, listTool, projectTool, wowTool, sendTool, broadcastTool, discussionTool, roleTool, reserveTool, journalTool, feedbackTool, agentTool, taskTool, nextTool];
 }
 
 /**

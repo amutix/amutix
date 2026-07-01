@@ -70,11 +70,25 @@ pi install git:github.com/amutix/amutix
 git clone https://github.com/amutix/amutix.git
 ```
 
-Import the core module directly in your project:
+Import core services or the neutral tool registry directly when building another host adapter:
 
 ```typescript
-import { createAgent, sendMessage, addTask } from "./amutix/core/index.ts";
+import { addTask, readBacklog, allAmutixTools } from "./amutix/core/index.ts";
+
+const now = new Date().toISOString();
+await addTask("my-session", {
+  title: "Review auth flow",
+  status: "todo",
+  createdBy: "Lead",
+  createdAt: now,
+  updatedAt: now,
+});
+
+console.log((await readBacklog("my-session")).map((item) => item.id));
+console.log(allAmutixTools().map((tool) => tool.name));
 ```
+
+Host adapters should prefer `allAmutixTools()` so Pi and future runtimes share the same behavior.
 
 ### CLI (read-only, phase 1)
 
@@ -92,23 +106,56 @@ Session is auto-detected if only one exists. The CLI uses shared core services a
 
 ## Quick Start (Pi)
 
+### Lead/project setup
+
 ```bash
-# Terminal 1: set up the project
+# Terminal 1: set up the project and first agent
 pi
 /amutix new project myapp --repo current --vision "Build ..."
 /amutix new agent Lead --role architect --workspace current --join
 /amutix new agent Developer --role developer --workspace worktree
 
-# Terminal 2: another agent joins
-cd ~/myapp-agent1 && pi
-/amutix join            # → select project → select agent → start working
+# Terminal 2: the registered developer joins from its workspace
+cd <developer-worktree> && pi
+/amutix join            # → select project → select offline agent → start working
 ```
 
-[cprune: omitted prior tool-call argument edit.arguments.edits[0].newText; 1952 chars; hash=efc60b561f2fc8b4; preview="## Commands amutix has five command surfaces: | Surface | Purpose | Examples | |---------|---------|----------| | Project | Alignment artifacts: vision, WoW, roles/templates | `/amutix project`, `/amutix project vision set ...`, `/amutix project wow ...` | | Team | Agents, roles, availability"]
+### Agent quickstart: already joined
+
+If your prompt includes an amutix identity/session and assigned or active work:
+
+1. Treat the prompt's work state and task comments as the current source of truth, not an old direct message.
+2. On wake/resume or when unsure, call `amutix_next({})` for a read-only digest of attention, work, awaiting replies, reservations, and safe next pointers.
+3. Pull more state only when needed: `/amutix work`, `/amutix work show TASK-01`, or `amutix_task({ action: "show", id: "TASK-01" })`.
+4. Inspect parent context for child work, then pick one ready item: `amutix_task({ action: "pick", id: "TASK-01", reason: "Starting implementation" })`.
+5. Use task comments for task-scoped questions, rely on auto-reservations from `pick` (or `amutix_reserve` for extra paths), and move substantive work to `review` with a compact handoff.
+
+### Agent quickstart: not joined
+
+If amutix says you are not in a project:
+
+1. Run `/amutix join` and select the project plus an offline agent identity.
+2. If no project exists, a lead should create one with `/amutix new project <name>`.
+3. If no suitable agent exists, create one with `/amutix new agent <name> --role <role> [--workspace worktree|current|none]`.
+4. After joining, use `/amutix prompt` to verify the coordination block and then follow the joined-agent path above.
+
+## Commands
+
+amutix exposes a small Pi command surface plus framework-neutral tools:
+
+| Surface | Purpose | Examples |
+|---------|---------|----------|
+| Setup/join | Create projects/agents and join an identity | `/amutix new project myapp`, `/amutix new agent Dev --role developer`, `/amutix join`, `/amutix leave` |
+| Project alignment | Vision/context and Ways of Working | `/amutix project`, `/amutix project vision set ...`, `/amutix wow`, `/amutix project wow ...` |
+| Work | Progress and backlog item details | `/amutix work`, `/amutix work show TASK-01`, `/amutix progress`, `/amutix show TASK-01` |
+| Team | Agent roster, availability, and workspace helpers | `/amutix team`, `/amutix status set focus "reviewing"`, `/amutix workspace` |
+| Prompt/debug | Preview the amutix-appended coordination block | `/amutix prompt`, `/amutix prompt workState`, `/amutix prompt all` |
+| Tools | Agent-callable coordination primitives | `amutix_task`, `amutix_project`, `amutix_send`, `amutix_reserve`, `amutix_journal` |
 
 ### Project Vision / Context
 
 ```bash
+/amutix new project <name>              # Create a project/session from Pi
 /amutix project                         # Show current project vision/context
 /amutix project vision set <t>          # Replace project vision/context
 /amutix project vision append <t>       # Append to project vision/context
@@ -116,6 +163,7 @@ cd ~/myapp-agent1 && pi
 /amutix project vision clear            # Clear project vision/context
 /amutix project vision path             # Print CONTEXT.md file path
 /amutix project wow ...                 # Manage Ways of Working (also available as /amutix wow)
+amutix_project({ action: "create", content: "myapp" })  # Neutral setup tool for adapters that expose tools before join
 ```
 
 Project vision/context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts. Prefer `/amutix project vision ...` or the `amutix_project` tool over direct file edits.
@@ -145,7 +193,7 @@ amutix **appends** a coordination block to the host agent runtime's base system 
 
 ### Task Workflow
 
-Task assignments are **state-derived** — agents discover their tasks from the current backlog, not from queued inbox messages. This ensures task context is always current and never stale.
+Task assignments are **state-derived** — agents discover their tasks from the current backlog, not from queued inbox messages. This ensures task context is always current and never stale. `amutix_next` is the lightweight cockpit for checking current pointers; use task comments, reviews, and lifecycle actions for coordination changes.
 
 ```bash
 # View compact task details
@@ -160,6 +208,8 @@ amutix_task({ action: "comment", id: "TASK-01", content: "Looks good, one sugges
 /amutix work
 /amutix progress            # shortcut
 amutix_task({ action: "summary" })
+amutix_task({ action: "plan", id: "TASK-01", content: "# Plan\n..." })
+amutix_task({ action: "review", id: "TASK-01", summary: "Branch agent/dev. Diff: ... Tests: npm test. Risks: ..." })
 amutix_task({ action: "archive" })   # Move done items out of the active backlog
 ```
 
@@ -228,21 +278,26 @@ Existing items without these fields behave as regular tasks. New item IDs use ty
 
 Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a concrete assignment notification when new work is assigned; working/focus/away agents are not interrupted.
 
-## Tools (11)
+## Tools (14 current)
+
+The canonical model-facing names use the `amutix_*` prefix. Legacy `amux_*` aliases still resolve for backward compatibility but are deprecated.
 
 | Tool | Actions | Purpose |
 |------|---------|---------|
-| `amutix_role` | add, list, remove, templates, apply-template, show, path | Manage roles and apply team templates |
-| `amutix_list` | -- | List online/offline agents |
-| `amutix_send` | -- | Send message to an agent (exceptional, non-task communication; supports response-required tracking) |
-| `amutix_discussion` | start, post, show, list, close | Multi-party discussions for retros, brainstorms, design jams |
-| `amutix_broadcast` | -- | Broadcast to all agents |
-| `amutix_artifacts` | -- | List shared documents |
-| `amutix_project` | show, set, append, clear, path | Manage project vision/context |
+| `amutix_artifacts` | -- | List shared project and private agent artifacts |
+| `amutix_list` | -- | List online/effectively-online agents across the current session, with optional cross-session discovery; use `/amutix team` or CLI `amutix team` for offline/availability views |
+| `amutix_project` | create, show, set, append, clear, path | Create project sessions and manage project vision/context |
 | `amutix_wow` | show, set, append, clear, path | Manage project/team Ways of Working |
-| `amutix_reserve` | claim, release, list | File/directory reservations |
-| `amutix_task` | add, list, show, comment, assign, pick, review, done, drop, block, archive, summary | Task backlog with comments, dependencies, batch assign, archive done items |
-| `amutix_journal` | add, list | Record decisions and learnings |
+| `amutix_send` | -- | Send direct messages for exceptional non-task communication; supports response-required tracking |
+| `amutix_broadcast` | -- | Broadcast a message to online agents |
+| `amutix_discussion` | start, post, show, list, close | Multi-party discussions for retros, brainstorms, design jams, and syncs |
+| `amutix_role` | add, list, remove, templates, apply-template, show, path | Manage roles and apply team templates |
+| `amutix_reserve` | claim, release, list | Advisory file/directory reservations |
+| `amutix_journal` | add, list | Record durable decisions, learnings, and progress |
+| `amutix_feedback` | add, list, path | Record project-independent feedback about amutix itself |
+| `amutix_agent` | register | Register agent identities in the current project session |
+| `amutix_task` | add, list, show, comment, plan, edit-plan, assign, pick, review, done, drop, block, archive, summary | Backlog lifecycle with task comments, linked specs, dependencies, batch assignment, review, and archive |
+| `amutix_next` | -- | Read-only state digest/cockpit with identity, attention, awaiting replies, relevant work, reservations, reviews, discussions, and safe next pointers |
 
 ## Built-in Roles
 
@@ -307,14 +362,16 @@ This workflow is guidance, not magic automation — the lead agent orchestrates 
 amutix **appends** a composed coordination block to the host agent runtime's base system prompt (it never replaces it). The block is assembled in a deliberate, documented order (see `core/prompt-assembly.ts`):
 
 1. Common amutix operating principles (collaboration contract)
-2. Project vision/context
-3. Role profile (role-specific only)
-4. Agent identity + workspace
-5. Current work state (active/assigned/review items, spec preview, recent comments)
-6. Team/project snapshot/reservation context
-7. Interface/tool guidance and shared artifact paths
+2. Ways of Working (`WOW.md`)
+3. Project vision/context (`CONTEXT.md`)
+4. Role profile (role-specific only)
+5. Agent identity + workspace
+6. Current work state (active/assigned/review items, spec preview, recent comments, recent journal)
+7. Team/project snapshot/reservation context
+8. Interface/tool guidance and shared artifact paths
+9. Compact open-discussions metadata
 
-Role profiles supply only the role-specific section; common principles, vision, work state, and interface guidance are separate, deliberately-ordered sections.
+Role profiles supply only the role-specific section; common principles, WoW, vision, work state, team context, and interface guidance are separate, deliberately ordered sections.
 
 ## Team Learning & Retrospectives
 
@@ -398,13 +455,19 @@ Both core modules and the Pi adapter resolve the same root.
 ├── task-comments/          Per-task comment/activity history (JSONL)
 ├── reservations.json       File reservations
 ├── journal.jsonl           Decisions & learnings
+├── discussions.json        Open/closed team discussions
 ├── messages.log            Message history
 ├── inbox/<agent-uuid>/     Per-agent message inbox
 └── artifacts/
     ├── project/            Shared across all agents
-    │   └── CONTEXT.md      Auto-injected into agent prompts
+    │   ├── CONTEXT.md      Auto-injected project vision/context
+    │   ├── WOW.md          Auto-injected Ways of Working
+    │   ├── roles/          Project-local role profiles
+    │   └── tasks/          Linked task specs/plans
     └── agents/<uuid>/      Private per-agent space
 ```
+
+Global amutix product feedback is stored outside project sessions so it does not pollute project state.
 
 ## Development
 

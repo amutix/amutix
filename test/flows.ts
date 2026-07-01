@@ -91,6 +91,7 @@ import {
   feedbackTool,
   agentTool,
   taskTool,
+  nextTool,
   objectSchema,
   optionalBoolProp,
   type AmutixToolContext,
@@ -229,6 +230,10 @@ import {
   shouldDeliverAttention,
   renderAttentionNotice,
 } from "../core/attention.ts";
+import {
+  readReviewRequests,
+  recordReviewRequest,
+} from "../core/next.ts";
 import {
   canTransition,
   targetStatus,
@@ -1692,7 +1697,7 @@ describe("Self-waking attention digest", () => {
     });
   });
 
-  it("derives assigned, unread-message, and flagged-review attention", async () => {
+  it("derives assigned, unread-message, and targeted-review attention", async () => {
     const assigned = await addTask(session, {
       title: "Assigned slice", status: "assigned",
       assignee: "Reviewer", assigneeId: reviewerId,
@@ -1702,6 +1707,15 @@ describe("Self-waking attention digest", () => {
       title: "Needs review", status: "review",
       assignee: "Dev", assigneeId: devId,
       createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    recordReviewRequest({
+      session,
+      taskId: review.id,
+      recipientId: reviewerId,
+      recipientName: "Reviewer",
+      requestedById: devId,
+      requestedByName: "Dev",
+      timestamp: now,
     });
     sendToInbox(session, reviewerId, {
       id: newMessageId(),
@@ -3874,6 +3888,180 @@ describe("Neutral task tool (SPEC-18 Slice 5)", () => {
   });
 });
 
+describe("amutix_next agent-friendliness cockpit", () => {
+  const session = testSession("nexttool");
+  const devId = newAgentId();
+  const reviewerId = newAgentId();
+  const devCtx: AmutixToolContext = { session, agentId: devId, agentName: "Dev", roleName: "developer" };
+
+  before(async () => {
+    const now = new Date().toISOString();
+    await registerAgent(session, {
+      id: devId, name: "Dev", session, role: "developer", roleName: "developer",
+      cwd: "/tmp/dev", pid: 0, status: "online", availability: "idle", attentionPending: true,
+      registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(session, {
+      id: reviewerId, name: "Reviewer", session, role: "reviewer", roleName: "reviewer",
+      cwd: "/tmp/reviewer", pid: 0, status: "online", availability: "idle",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    const done = await addTask(session, {
+      title: "Completed dependency", status: "done", createdBy: "Lead", createdAt: now, updatedAt: now, completedAt: now,
+    });
+    await addTask(session, {
+      title: "Active implementation", status: "in-progress", assignee: "Dev", assigneeId: devId,
+      files: ["src/active.ts"], createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await addTask(session, {
+      title: "Assigned ready work", status: "assigned", assignee: "Dev", assigneeId: devId,
+      dependsOn: [done.id], files: ["src/assigned.ts"], createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await addTask(session, {
+      title: "Assigned waiting work", status: "assigned", assignee: "Dev", assigneeId: devId,
+      dependsOn: ["TASK-99"], files: ["src/waiting.ts"], createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await addTask(session, {
+      title: "My review handoff", status: "review", assignee: "Dev", assigneeId: devId,
+      createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    const reviewRequest = await addTask(session, {
+      title: "Review requested from Dev", status: "review", assignee: "Reviewer", assigneeId: reviewerId,
+      createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    recordReviewRequest({
+      session,
+      taskId: reviewRequest.id,
+      recipientId: devId,
+      recipientName: "Dev",
+      requestedById: reviewerId,
+      requestedByName: "Reviewer",
+      timestamp: now,
+    });
+    await addTask(session, {
+      title: "Blocked owned work", status: "blocked", assignee: "Dev", assigneeId: devId,
+      blockedReason: "waiting on API", createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await createPendingReply(session, {
+      id: "PENDING-1",
+      messageId: "MSG-1",
+      fromId: devId,
+      fromName: "Dev",
+      toSession: session,
+      toId: reviewerId,
+      toName: "Reviewer",
+      createdAt: now,
+      messagePreview: "Please confirm the plan",
+    });
+    sendToInbox(session, devId, {
+      id: "INBOX-1",
+      from: reviewerId,
+      fromName: "Reviewer",
+      fromRole: "reviewer",
+      fromSession: session,
+      timestamp: now,
+      message: "Please look at the review handoff",
+      category: "fyi",
+      taskId: "TASK-05",
+    });
+    await reserve(session, ["src/active.ts"], reviewerId, "Reviewer", "reviewing same file");
+  });
+  after(() => cleanupSession(session));
+
+  it("registry exposes amutix_next with canonical and legacy lookup", () => {
+    const names = allAmutixTools().map((tool) => tool.name);
+    assert.ok(names.includes("amutix_next"));
+    assert.equal(getAmutixTool("amutix_next")?.name, "amutix_next");
+    assert.equal(getAmutixTool("amux_next")?.name, "amutix_next");
+    assert.equal(nextTool.name, "amutix_next");
+    assert.ok(nextTool.promptGuidelines?.some((line) => line.includes("waking")));
+  });
+
+  it("digest includes current-agent attention, work, awaiting replies, reviews, and reservations", async () => {
+    const result = await nextTool.execute(devCtx, { full: true });
+    assert.ok(result.text.includes("amutix_next for"));
+    assert.ok(result.text.includes("Safe next pointers"));
+
+    const details = result.details as Awaited<ReturnType<typeof nextTool.execute>>["details"] & {
+      identity: { agentId: string; agentName: string };
+      attention: Array<{ kind: string; taskId?: string; messageId?: string; replyId?: string }>;
+      awaitingReplies: Array<Record<string, unknown>>;
+      work: Record<string, Array<{ id: string; title: string; unmetDependencies: string[] }>>;
+      reservations: { relevantConflicts: Array<{ path: string; conflictsWith?: string[] }> };
+      next: Array<{ kind: string; pointer?: string }>;
+    };
+
+    assert.equal(details.identity.agentId, devId);
+    assert.equal(details.identity.agentName, "Dev");
+    assert.ok(details.attention.some((entry) => entry.kind === "message" && entry.messageId === "INBOX-1"));
+    assert.ok(details.attention.some((entry) => entry.kind === "reply" && entry.replyId === "PENDING-1"));
+    assert.ok(details.attention.some((entry) => entry.kind === "review" && entry.taskId));
+
+    assert.equal(details.work.active.length, 1);
+    assert.ok(details.work.assigned.some((task) => task.title === "Assigned ready work"));
+    assert.ok(details.work.dependencyBlocked.some((task) => task.unmetDependencies.includes("TASK-99")));
+    assert.equal(details.work.reviewAuthoredByMe.length, 1);
+    assert.deepEqual(details.work.reviewRequestedFromMe.map((task) => task.title), ["Review requested from Dev"]);
+    assert.equal(details.work.blocked[0]!.title, "Blocked owned work");
+
+    assert.equal(details.awaitingReplies[0]!.toName, "Reviewer");
+    assert.equal("fromSession" in details.awaitingReplies[0]!, false);
+    assert.ok(details.reservations.relevantConflicts.some((r) => r.path === "src/active.ts" && r.conflictsWith?.includes("src/active.ts")));
+    assert.ok(details.next.some((pointer) => ["attention", "task", "reply", "review", "reservation"].includes(pointer.kind)));
+  });
+
+  it("attention signature changes when assigned dependencies become satisfied", async () => {
+    const depSession = testSession("next-unblocked");
+    const agentId = newAgentId();
+    const now = new Date().toISOString();
+    await registerAgent(depSession, {
+      id: agentId, name: "Dev", session: depSession, role: "developer", roleName: "developer",
+      cwd: "/tmp", pid: 0, status: "online", availability: "idle",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    const dep = await addTask(depSession, {
+      title: "Dependency", status: "assigned", createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await addTask(depSession, {
+      title: "Dependent work", status: "assigned", assignee: "Dev", assigneeId: agentId,
+      dependsOn: [dep.id], createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+
+    const waiting = await computeAttentionDigest(depSession, agentId, { attentionPending: false });
+    assert.ok(waiting.some((entry) => entry.kind === "assigned" && entry.summary.includes("waiting on")));
+    const waitingSig = attentionSignature(waiting);
+
+    await updateTask(depSession, dep.id, { status: "done", completedAt: new Date().toISOString() });
+    const ready = await computeAttentionDigest(depSession, agentId, { attentionPending: false });
+    assert.ok(ready.some((entry) => entry.kind === "assigned" && entry.summary.includes("dependencies met")));
+    assert.notEqual(attentionSignature(ready), waitingSig);
+    cleanupSession(depSession);
+  });
+
+  it("digest is read-only and state-derived", async () => {
+    const beforeBacklog = JSON.stringify(await readBacklog(session));
+    const beforeReservations = JSON.stringify(await getReservations(session));
+    const beforeInbox = JSON.stringify(getRecoverableMessages(session, devId));
+    const beforeReplies = JSON.stringify(await readPendingReplies(session, devId));
+
+    await nextTool.execute(devCtx, {});
+
+    assert.equal(JSON.stringify(await readBacklog(session)), beforeBacklog);
+    assert.equal(JSON.stringify(await getReservations(session)), beforeReservations);
+    assert.equal(JSON.stringify(getRecoverableMessages(session, devId)), beforeInbox);
+    assert.equal(JSON.stringify(await readPendingReplies(session, devId)), beforeReplies);
+  });
+
+  it("README tool table lists every canonical neutral tool", () => {
+    const readme = readF("README.md", "utf8");
+    for (const tool of allAmutixTools()) {
+      assert.ok(readme.includes(`\`${tool.name}\``), `README missing ${tool.name}`);
+    }
+    assert.ok(readme.includes("## Tools (14 current)"));
+    assert.equal(readme.includes("Planned in the current agent-friendliness slice: `amutix_next`"), false);
+  });
+});
+
 describe("Prompt preview / debug surface", () => {
   it("PROMPT_SECTION_ORDER lists all nine sections in the deliberate order", () => {
     assert.deepEqual([...PROMPT_SECTION_ORDER], [
@@ -3915,7 +4103,7 @@ describe("Prompt preview / debug surface", () => {
     assert.ok(out.includes("base system prompt is NOT shown"));
     assert.equal(out.includes("Pi's base system prompt"), false);
     assert.ok(/Sections gathered \(2\/9\)/.test(out));
-    assert.ok(out.includes("/amux prompt all"));
+    assert.ok(out.includes("/amutix prompt all"));
     assert.equal(out.includes("---- composed block"), false);
     assert.equal(out.includes("COMMON"), false);
     assert.equal(out.includes("IDENT"), false);
@@ -4714,6 +4902,7 @@ describe("amutix_task transition notifications (SPEC-19 slice 3)", () => {
     const res = await taskTool.execute(devCtx, { action: "review", id, summary: "done", notifyTarget: "agents", notifyAgents: ["Reviewer"] });
     assert.match(res.text, /Notified: Reviewer/);
     assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
+    assert.ok(readReviewRequests(session).some((event) => event.taskId === id && event.recipientId === reviewerId));
     const show = await taskTool.execute(devCtx, { action: "show", id });
     assert.equal((show.details as { task: BacklogItem }).task.assignee, "Developer");
   });

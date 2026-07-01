@@ -1,5 +1,5 @@
 /**
- * amux — Task and Progress Renderers
+ * amutix — Task and Progress Renderers
  *
  * Pure presentation functions for formatting backlog items, task details,
  * and progress summaries. Framework-agnostic — no I/O, no Pi dependencies.
@@ -11,6 +11,74 @@ import type { TaskComment } from "./task-comments.ts";
 import { unmetDependencies } from "./backlog.ts";
 import { formatTaskComment } from "./task-comments.ts";
 import { formatTimestamp, truncatePreview } from "./storage.ts";
+import type { AmutixNextDetails } from "./next.ts";
+
+// ─── amutix_next rendering contract ──────────────────────────
+
+/**
+ * Input shape for the future `renderAmutixNextDigest` helper. TASK-03 should
+ * render concise, pull-based text from the structured `AmutixNextDetails`
+ * contract and expose the same object unchanged as tool `details`.
+ */
+export interface RenderAmutixNextDigestInput {
+  details: AmutixNextDetails;
+}
+
+/** Render concise text for `amutix_next`; structured data remains in details. */
+export function renderAmutixNextDigest(input: RenderAmutixNextDigestInput): string {
+  const d = input.details;
+  const lines: string[] = [];
+  lines.push(`amutix_next for ${d.identity.session}/${d.identity.agentName} (${d.identity.roleName || "agent"})`);
+  if (d.identity.workspace || d.identity.branch) {
+    lines.push(`Workspace: ${[d.identity.workspace, d.identity.branch ? `branch ${d.identity.branch}` : ""].filter(Boolean).join(" · ")}`);
+  }
+  lines.push(`Generated: ${d.generatedAt}${d.full ? " · full" : " · compact"}`);
+
+  const attentionCount = d.attention.length;
+  const activeCount = d.work.active.length;
+  const assignedCount = d.work.assigned.length;
+  const reviewCount = d.work.reviewRequestedFromMe.length;
+  const conflictCount = d.reservations.relevantConflicts.length;
+  const awaitingCount = d.awaitingReplies.length;
+  lines.push(`State: attention ${attentionCount} · active ${activeCount} · assigned ${assignedCount} · targeted reviews ${reviewCount} · awaiting replies ${awaitingCount} · reservation conflicts ${conflictCount}`);
+
+  if (d.attention.length > 0) {
+    lines.push("\nAttention:");
+    for (const entry of d.attention.slice(0, 5)) lines.push(`- ${entry.kind}: ${truncatePreview(entry.summary, 180)}`);
+    if (d.attention.length > 5) lines.push(`- …and ${d.attention.length - 5} more`);
+  }
+
+  const workLines = [
+    ...d.work.active.map((t) => `active ${t.id}: ${t.title}`),
+    ...d.work.assigned.slice(0, 5).map((t) => `assigned ${t.id}: ${t.title}${t.unmetDependencies.length ? ` (waiting on ${t.unmetDependencies.join(", ")})` : ""}`),
+    ...d.work.reviewRequestedFromMe.slice(0, 5).map((t) => `review requested ${t.id}: ${t.title}`),
+    ...d.work.blocked.slice(0, 5).map((t) => `blocked ${t.id}: ${t.title}${t.blockedReason ? ` (${t.blockedReason})` : ""}`),
+  ];
+  if (workLines.length > 0) {
+    lines.push("\nRelevant work:");
+    for (const line of workLines.slice(0, 8)) lines.push(`- ${line}`);
+    if (workLines.length > 8) lines.push(`- …and ${workLines.length - 8} more`);
+  }
+
+  if (d.awaitingReplies.length > 0) {
+    lines.push("\nAwaiting replies:");
+    for (const reply of d.awaitingReplies.slice(0, 5)) lines.push(`- ${reply.id} from ${reply.toSession}/${reply.toName}: ${truncatePreview(reply.messagePreview, 120)}`);
+  }
+
+  if (d.reservations.relevantConflicts.length > 0) {
+    lines.push("\nReservation conflicts:");
+    for (const r of d.reservations.relevantConflicts.slice(0, 5)) lines.push(`- ${r.path}: ${r.agent}${r.conflictsWith?.length ? ` (conflicts with ${r.conflictsWith.join(", ")})` : ""}`);
+  }
+
+  lines.push("\nSafe next pointers:");
+  for (const pointer of d.next.slice(0, 8)) {
+    const ref = pointer.pointer ? ` [${pointer.pointer}]` : "";
+    lines.push(`- ${pointer.kind}${ref}: ${truncatePreview(pointer.rationale, 180)}`);
+  }
+
+  lines.push("\nDetails contain the structured digest; pull task/discussion/reservation bodies only when needed.");
+  return lines.join("\n");
+}
 
 // ─── Utilities ───────────────────────────────────────────────
 

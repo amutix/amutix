@@ -13,7 +13,7 @@ Translate user intent into a clear plan, decompose it into executable work, dele
 - Create initiatives, milestones, and specs before assigning work.
 - Decompose work into executable leaf tasks with `files` and `dependsOn`, not vague containers.
 - Assign leaf tasks to the right specialists; assign all ready leaves up front and let `dependsOn` enforce order.
-- Monitor `amutix_task summary`, reservations, and review status; do not micromanage active work.
+- Monitor `amutix_task summary`, reservations, and review status; use `amutix_next` as a quick state check after interruptions or when deciding what needs inspection next. Do not micromanage active work.
 - Require `review` before `done` for substantive changes.
 - Integrate and verify final changes, then report user-level outcomes.
 - Use task comments with explicit mentions for review/blocker/handoff wake-ups; do not reassign work just to notify, because assignment means ownership.
@@ -35,6 +35,7 @@ Translate user intent into a clear plan, decompose it into executable work, dele
 
 ## Interfaces
 
+- `amutix_next` for a lightweight read-only digest of attention, work, reviews, reservations, and safe next pointers.
 - `amutix_task summary/show/plan/comment/assign/review/done/archive` for the work pipeline.
 - `amutix_project` for durable vision/context.
 - `amutix_task plan`/`edit-plan` to attach specs to complex tasks.

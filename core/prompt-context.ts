@@ -1,10 +1,10 @@
 /**
  * Prompt context gatherer.
  *
- * Builds the amux coordination `PromptSections` from core state (backlog,
+ * Builds the amutix coordination `PromptSections` from core state (backlog,
  * registry, reservations, journal, ways-of-working, project context,
  * discussions). This is the single product-logic gathering path shared by the
- * Pi `before_agent_start` hook and the `/amux prompt` preview command, so the
+ * Pi `before_agent_start` hook and the `/amutix prompt` preview command, so the
  * injected prompt and the previewed prompt can never drift.
  *
  * The module stays Pi-independent: the adapter supplies the current agent's
@@ -33,10 +33,7 @@ import {
   readProjectContext,
   projectArtifactsPath,
 } from "./project-context.ts";
-import {
-  readPendingReplies,
-  formatMessageAge,
-} from "./messaging.ts";
+import { formatMessageAge } from "./messaging.ts";
 import {
   type AgentInfo,
   readRegistry,
@@ -50,10 +47,16 @@ import { getReservations, formatReservationAge } from "./reservations.ts";
 import { getRecentEntries, formatEntryPreview } from "./journal.ts";
 import { openDiscussionSummaries } from "./discussions.ts";
 import { sessionFile } from "./storage.ts";
+import { deriveCoordinationSignals } from "./next.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
-/** Identity/role/address of the agent whose prompt is being assembled. */
+/**
+ * Identity/role/address of the agent whose prompt is being assembled.
+ *
+ * `amutix_next` should accept the same adapter-supplied identity context so its
+ * digest and prompt assembly describe the same agent/session/workspace view.
+ */
 export interface PromptContextAgent {
   session: string;
   id: string;
@@ -93,7 +96,7 @@ function formatTaskDiscussionPromptSummary(taskId: string, comments: TaskComment
 // ─── Gather ──────────────────────────────────────────────────
 
 /**
- * Gather all amux coordination sections for the joined agent, in the
+ * Gather all amutix coordination sections for the joined agent, in the
  * deliberate order defined by `assembleAgentPrompt`. Pure with respect to the
  * host: reads core state and calls the supplied callbacks only.
  */
@@ -103,6 +106,7 @@ export async function gatherAgentPromptSections(
 ): Promise<PromptSections> {
   const { session, id, name } = agent;
   const backlog = await readBacklog(session);
+  const coordinationSignals = await deriveCoordinationSignals({ session, agentId: id, agentName: name, roleName: agent.roleName });
 
   // ── Section 2: Ways of Working (extends common principles) ──
   const wowContent = readWaysOfWorking(session);
@@ -133,9 +137,10 @@ export async function gatherAgentPromptSections(
   // ── Section 5: Current work state (active/review/assigned, spec, recent comments) ──
   let workState = "";
   {
-    const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === id);
-    const review = backlog.filter((t) => t.status === "review" && t.assigneeId === id);
-    const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === id);
+    const inProgress = coordinationSignals.active;
+    const review = coordinationSignals.reviewAuthoredByMe;
+    const reviewRequested = coordinationSignals.reviewRequestedFromMe;
+    const assigned = coordinationSignals.assigned;
 
     if (inProgress.length > 0) {
       const active = inProgress[0]!;
@@ -166,18 +171,26 @@ export async function gatherAgentPromptSections(
       }
     }
 
-    if (assigned.length > 0) {
-      const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-      workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nPick to start; show only when details are needed.`;
+    if (reviewRequested.length > 0) {
+      const ids = reviewRequested.map((t) => `${t.id}: ${t.title}`).join("\n  ");
+      workState += `${workState ? "\n\n" : ""}## Review Requests For You (${reviewRequested.length})\n  ${ids}\n\nThese are targeted review signals; inspect the task and comment with review feedback.`;
     }
 
-    const pendingReplies = await readPendingReplies(session, id);
-    if (pendingReplies.length > 0) {
-      const lines = pendingReplies.slice(0, 5).map((p) => {
+    if (assigned.length > 0) {
+      const ids = assigned.map((t) => {
+        const unmet = unmetDependencies(t, backlog);
+        return `${t.id}: ${t.title}${unmet.length > 0 ? ` (waiting on ${unmet.join(", ")})` : ""}`;
+      }).join("\n  ");
+      workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nPick ready work to start; show only when details are needed.`;
+    }
+
+    const awaitingReplies = coordinationSignals.awaitingReplies;
+    if (awaitingReplies.length > 0) {
+      const lines = awaitingReplies.slice(0, 5).map((p) => {
         const task = p.taskId ? ` ${p.taskId}` : "";
-        return `- ${p.id}${task} to ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
+        return `- ${p.id}${task} from ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
       });
-      workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nReply with amutix_send inReplyTo to close.`;
+      workState += `${workState ? "\n\n" : ""}## Awaiting Replies (${awaitingReplies.length})\n${lines.join("\n")}\n\nThese are response-required messages you sent and are waiting on; the recipient's reply with inReplyTo closes them.`;
     }
   }
 
@@ -254,6 +267,7 @@ export async function gatherAgentPromptSections(
   // ── Section 7: Interface/tool guidance + shared artifact paths ──
   const interfaceGuidance = `## Interfaces & Artifacts
 - amutix tools are coordination primitives, not a rigid workflow. Use judgment and the lightest shared state that keeps teammates aligned.
+- Use \`amutix_next\` as a lightweight read-only state check on wake/resume or when unsure; treat it as pointers to inspect, not a replacement for task comments, reviews, or backlog lifecycle actions.
 - Messages from other agents appear as "[amutix:session/agent (role) · sent Xm ago] message". Treat them as teammate requests; reply with amutix_send to the sender when a direct reply is appropriate.
 - Use amutix_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
 - Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.

@@ -25,6 +25,7 @@ It should sit underneath agent runtimes, terminal workspaces, IDEs, and future h
 - What needs review before it is done?
 - What decisions and learnings should future agents inherit?
 - What compact context should be injected before an agent acts?
+- When an agent wakes up or joins, what state should it inspect next?
 
 This makes amutix complementary to execution surfaces. A pane manager shows live terminals; an agent runtime talks to the model; a workflow runner may sequence prompts. amutix keeps the team's shared plan, ownership, decisions, and review state coherent across those surfaces.
 
@@ -46,7 +47,7 @@ amutix favors:
 - state-derived prompts over queued task instructions
 - concise attention signals over long interrupting notifications
 - shared project context and journals over repeated explanation
-- compact progress views over ambiguous status chatter
+- compact progress and next-state views over ambiguous status chatter
 
 ### 2. High alignment
 
@@ -56,7 +57,7 @@ amutix favors:
 
 - hierarchical backlog items for shared structure
 - parent context for child work
-- visible progress summaries
+- visible progress and attention summaries
 - durable decisions and learnings
 - explicit dependencies and file reservations
 - typed work items that reveal intent through IDs (`INIT-*`, `TASK-*`, `BUG-*`, `SPEC-*`)

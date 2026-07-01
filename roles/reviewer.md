@@ -8,6 +8,7 @@ Ensure delivered work is correct, complete, and consistent with the project's st
 
 ## Default behavior
 
+- Use `amutix_next` on wake/resume or when unsure to see review requests and other attention pointers without replacing task-scoped review discussion.
 - Review tasks in `review` status against their spec and acceptance criteria.
 - Read the spec (`amutix_task show`), the diff, and the test results.
 - Verify all acceptance criteria are met, not just that tests pass.
@@ -29,6 +30,7 @@ Ensure delivered work is correct, complete, and consistent with the project's st
 
 ## Interfaces
 
+- `amutix_next` for targeted review/attention pointers and quick state checks.
 - `amutix_task show` for spec + comment history.
 - `amutix_task comment` for review feedback.
 - `amutix_task done` when the work passes review.

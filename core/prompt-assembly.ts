@@ -1,7 +1,7 @@
 /*
- * amux — Agent Prompt Assembly
+ * amutix — Agent Prompt Assembly
  *
- * Deliberate, reviewable composition of the coordination block that amux
+ * Deliberate, reviewable composition of the coordination block that amutix
  * APPENDS to the host agent runtime's base system prompt (it never replaces the base prompt).
  *
  * Section order is explicit and documented here so the prompt structure is
@@ -14,7 +14,7 @@
  */
 
 /**
- * Common amux operating principles — the shared collaboration contract every
+ * Common amutix operating principles — the shared collaboration contract every
  * agent follows, regardless of role. Role-specific behavior lives in role
  * profiles; this section holds only universal coordination rules so the two
  * never conflict.
@@ -23,7 +23,7 @@ export const COMMON_PRINCIPLES = `## amutix Operating Principles
 
 You are part of a coordinated agent team. amutix gives you shared coordination primitives, not a rigid script. Use judgment: choose the lightest tool that keeps teammates aligned, state accurate, and work reviewable.
 
-- **State is the source of truth.** Derive current truth from the backlog, registry, task comments, reservations, and journal — not from stale messages. Task assignments appear in your work state, not as inbox instructions.
+- **State is the source of truth.** Derive current truth from the backlog, registry, task comments, reservations, and journal — not from stale messages. Task assignments appear in your work state, not as inbox instructions. Use \`amutix_next\` as a lightweight state check when waking, resuming, or unsure what to inspect next.
 - **Coordinate like a dev team.** Prefer \`amutix_task comment\` for task-scoped discussion; use \`amutix_discussion\` for cross-cutting team retros/brainstorms/design jams; use \`amutix_send\` only for exceptional direct communication. Claim files via reservations before editing shared code when conflicts are plausible.
 - **Use structure when it helps.** Use \`amutix_task summary\` (or \`/amutix progress\`) for a hierarchical overview before choosing work. Items can be typed and nested, but do not add ceremony blindly: initiatives/milestones/specs are context containers for complex work; simple work can stay simple. Inspect parent context when working under a parent.
 - **Review with intent.** Substantive changes should be reviewable before they are considered done. Use review/done to make handoffs visible, but adapt the level of detail to the risk and size of the change.
@@ -36,7 +36,7 @@ You are part of a coordinated agent team. amutix gives you shared coordination p
  * are skipped during assembly.
  */
 export interface PromptSections {
-  /** 1. Common amux operating principles / collaboration contract. */
+  /** 1. Common amutix operating principles / collaboration contract. */
   commonPrinciples?: string;
   /** 2. Project Ways of Working (WOW.md) — extends common principles with team-specific norms. */
   waysOfWorking?: string;
@@ -122,11 +122,11 @@ export function skippedSectionNames(sections: PromptSections): string[] {
 }
 
 function promptPreviewHeader(): string {
-  return "amux prompt preview (debug)\n" +
-    "==========================\n\n" +
-    "amux APPENDS a coordination block to the host agent runtime's base " +
+  return "amutix prompt preview (debug)\n" +
+    "============================\n\n" +
+    "amutix APPENDS a coordination block to the host agent runtime's base " +
     "system prompt for the joined agent. The host's base system prompt is " +
-    "NOT shown here — only amux sections are previewed.";
+    "NOT shown here — only amutix sections are previewed.";
 }
 
 function promptSummary(sections: PromptSections): string {
@@ -141,9 +141,9 @@ function promptSummary(sections: PromptSections): string {
   return summary;
 }
 
-/** Format a non-polluting summary for `/amux prompt` default output. */
+/** Format a non-polluting summary for `/amutix prompt` default output. */
 export function formatPromptSummary(sections: PromptSections): string {
-  return `${promptPreviewHeader()}\n\n${promptSummary(sections)}\n\nUse /amux prompt <section> to inspect one section, or /amux prompt all to show the full amux-appended block. Sections: ${SECTION_ORDER.join(", ")}`;
+  return `${promptPreviewHeader()}\n\n${promptSummary(sections)}\n\nUse /amutix prompt <section> to inspect one section, or /amutix prompt all to show the full amutix-appended block. Sections: ${SECTION_ORDER.join(", ")}`;
 }
 
 /** Format one prompt section for focused inspection. */
@@ -155,7 +155,7 @@ export function formatPromptSectionPreview(sections: PromptSections, section: ke
 
 /**
  * Format the full composed coordination block as a debug/preview for explicit
- * `/amux prompt all`.
+ * `/amutix prompt all`.
  */
 export function formatPromptPreview(sections: PromptSections): string {
   const assembled = assembleAgentPrompt(sections);

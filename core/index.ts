@@ -24,6 +24,7 @@ export * from "./notification-service";
 export * from "./setup-service";
 export * from "./prompt-context";
 export * from "./attention";
+export * from "./next";
 export * from "./tools/index";
 export * from "./ways-of-working";
 export * from "./discussions";

@@ -27,6 +27,7 @@ import {
   getOnlineAgents,
   parseAddress,
 } from "./registry.ts";
+import { recordReviewRequest } from "./next.ts";
 import { type NotifyTarget, type LifecycleTransitionAction } from "./task-state-machine.ts";
 
 // ─── Plan Type ────────────────────────────────────────────────
@@ -298,13 +299,25 @@ export async function deliverNotificationPlans(
     if (plan.shouldSignal) {
       await updateAgent(plan.recipientSession, plan.recipientId, { attentionPending: true });
     }
+    const timestamp = senderTimestamp || new Date().toISOString();
+    if (plan.message.notificationType === "task-review" && plan.message.taskId) {
+      recordReviewRequest({
+        session: plan.recipientSession,
+        taskId: plan.message.taskId,
+        recipientId: plan.recipientId,
+        recipientName: plan.recipientName,
+        requestedById: sender.id,
+        requestedByName: sender.name,
+        timestamp,
+      });
+    }
     sendToInbox(plan.recipientSession, plan.recipientId, {
       id: newMessageId(),
       from: sender.id,
       fromName: sender.name,
       fromRole: sender.roleName,
       fromSession: sender.session,
-      timestamp: senderTimestamp || new Date().toISOString(),
+      timestamp,
       ...plan.message,
     });
   }

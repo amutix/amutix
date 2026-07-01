@@ -13,15 +13,9 @@
  * The digest only ever contains pointers to state; it never instructs the agent.
  */
 
-import {
-  getRecoverableMessages,
-  readPendingReplies,
-  messagePreview,
-  formatMessageAge,
-  type InboxMessage,
-} from "./messaging.ts";
-import { readBacklog, type BacklogItem } from "./backlog.ts";
+import type { InboxMessage } from "./messaging.ts";
 import type { AgentInfo } from "./registry.ts";
+import { deriveCoordinationSignals } from "./next.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -29,8 +23,11 @@ export type AttentionKind =
   | "message" // unread inbox message addressed to me
   | "assigned" // task assigned to me, not yet started
   | "active" // task I picked and still own in-progress
-  | "reply" // pending reply I owe (responseRequired, unanswered)
-  | "review" // task in review where I am a reviewer candidate
+  | "reply" // pending reply I am waiting on (responseRequired, unanswered)
+  | "review" // task where review was explicitly requested from me
+  | "blocked" // blocked work I own
+  | "reservation" // reservation conflict relevant to my planned files
+  | "discussion" // open discussion activity involving me
   | "flag"; // initiator flagged me but no specific derived item matched
 
 export interface AttentionEntry {
@@ -43,7 +40,17 @@ export interface AttentionEntry {
   filename?: string;
   /** Raw inbox message for message entries; used by adapters to append history. */
   message?: InboxMessage;
+  /** Stable signature key; changes when derived signal meaning changes (e.g. dependencies become ready). */
+  signatureKey?: string;
 }
+
+/**
+ * `amutix_next` uses this same digest as its attention source of truth. The
+ * cockpit may enrich entries with task/message/reply IDs for structured
+ * details, but it must not introduce a second attention model or latch copies
+ * of instructions that can go stale.
+ */
+export type AttentionDigestSource = AttentionEntry;
 
 // ─── Digest ──────────────────────────────────────────────────
 
@@ -59,91 +66,25 @@ export async function computeAttentionDigest(
   agentId: string,
   agent: Pick<AgentInfo, "attentionPending">,
 ): Promise<AttentionEntry[]> {
-  const entries: AttentionEntry[] = [];
-
-  // 1. Unread inbox messages. In the unified attention model, inbox writes do
-  //    not wake directly; they become durable attention entries picked up by
-  //    the heartbeat. Adapters mark .json files as .delivered only when the
-  //    digest is actually queued to the agent.
-  const recoverable = getRecoverableMessages(session, agentId);
-  for (const { msg, filename } of recoverable) {
-    // Skip the catch-all system pings that the heartbeat itself emits — they
-    // would otherwise feed the digest they were generated from.
-    if (msg.notificationType === "attention-digest") continue;
-    const role = msg.fromRole ? ` (${msg.fromRole})` : "";
-    const cat = msg.category ? ` · ${msg.category}` : "";
-    const task = msg.taskId ? ` · ${msg.taskId}` : "";
-    const response = msg.responseRequired ? ` · response requested · inReplyTo ${msg.id}` : "";
-    entries.push({
-      kind: "message",
-      pointer: msg.id,
-      summary: `Message from ${msg.fromSession}/${msg.fromName}${role}${cat}${task}${response} · sent ${formatMessageAge(msg.timestamp)}: ${messagePreview(msg.message, 180)}`,
-      filename,
-      message: msg,
+  const digest = await deriveCoordinationSignals({ session, agentId, agentName: "", roleName: undefined });
+  return digest.signals
+    .filter((signal) => ["message", "assigned-ready", "assigned-waiting", "active", "awaiting-reply", "targeted-review", "blocked", "reservation-conflict", "discussion", "flag"].includes(signal.kind))
+    .map((signal) => {
+      const entry: AttentionEntry = {
+        kind: signal.kind === "assigned-ready" || signal.kind === "assigned-waiting" ? "assigned"
+          : signal.kind === "awaiting-reply" ? "reply"
+          : signal.kind === "targeted-review" ? "review"
+          : signal.kind === "reservation-conflict" ? "reservation"
+          : signal.kind,
+        pointer: signal.taskId || signal.replyId || signal.messageId || signal.path || signal.discussionId || "",
+        summary: signal.summary,
+        message: signal.message,
+        signatureKey: signal.key,
+      };
+      const recoverable = digest.recoverableMessages.find(({ msg }) => msg.id === signal.messageId);
+      if (recoverable) entry.filename = recoverable.filename;
+      return entry;
     });
-  }
-
-  // 2. Tasks assigned to me but not yet started, plus active work I already
-  //    picked but have not moved to review/done/block/drop. This keeps agents
-  //    autonomous after a post-pick interruption: once work is in-progress, the
-  //    task itself becomes the durable resume pointer.
-  const backlog = await readBacklog(session);
-  for (const task of backlog) {
-    if (task.status === "assigned" && task.assigneeId === agentId) {
-      entries.push({
-        kind: "assigned",
-        pointer: task.id,
-        summary: `${task.id} assigned to you, not yet picked: ${task.title}`,
-      });
-    }
-    if (task.status === "in-progress" && task.assigneeId === agentId) {
-      entries.push({
-        kind: "active",
-        pointer: task.id,
-        summary: `${task.id} in progress: ${task.title}`,
-      });
-    }
-  }
-
-  // 3. Pending replies I owe.
-  const pendingReplies = (await readPendingReplies(session, agentId)).filter(
-    (r) => r.status === "pending",
-  );
-  for (const reply of pendingReplies) {
-    entries.push({
-      kind: "reply",
-      pointer: reply.id,
-      summary: `Reply owed to ${reply.fromName} (pending)`,
-    });
-  }
-
-  // 4. Review tasks where I am a reviewer candidate — surfaced only when the
-  //    initiator flagged me (attentionPending), so we don't wake every agent
-  //    for every review. The assignee already owns that task; others are the
-  //    intended reviewers.
-  if (agent.attentionPending) {
-    for (const task of backlog) {
-      if (task.status === "review" && task.assigneeId !== agentId) {
-        entries.push({
-          kind: "review",
-          pointer: task.id,
-          summary: `${task.id} ready for review: ${task.title}`,
-        });
-      }
-    }
-  }
-
-  // 5. Catch-all: if the initiator flagged me but nothing specific derived,
-  //    guarantee at least one entry so the trigger always surfaces.
-  if (entries.length === 0 && agent.attentionPending) {
-    entries.push({
-      kind: "flag",
-      pointer: "",
-      summary: "A teammate flagged you for attention — reassess your work state and inbox.",
-    });
-  }
-
-  return entries;
 }
 
 // ─── Signature (dedup / new-attention detection) ─────────────
@@ -154,7 +95,7 @@ export async function computeAttentionDigest(
  */
 export function attentionSignature(entries: AttentionEntry[]): string {
   return entries
-    .map((e) => `${e.kind}:${e.pointer}`)
+    .map((e) => e.signatureKey || `${e.kind}:${e.pointer}`)
     .sort()
     .join("|");
 }
