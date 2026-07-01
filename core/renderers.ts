@@ -39,8 +39,9 @@ export function renderAmutixNextDigest(input: RenderAmutixNextDigestInput): stri
   const assignedCount = d.work.assigned.length;
   const reviewCount = d.work.reviewRequestedFromMe.length;
   const conflictCount = d.reservations.relevantConflicts.length;
+  const topologyCount = d.project.topologyRisks.length;
   const awaitingCount = d.awaitingReplies.length;
-  lines.push(`State: attention ${attentionCount} · active ${activeCount} · assigned ${assignedCount} · targeted reviews ${reviewCount} · awaiting replies ${awaitingCount} · reservation conflicts ${conflictCount}`);
+  lines.push(`State: attention ${attentionCount} · active ${activeCount} · assigned ${assignedCount} · targeted reviews ${reviewCount} · awaiting replies ${awaitingCount} · reservation conflicts ${conflictCount} · topology risks ${topologyCount}`);
 
   if (d.attention.length > 0) {
     lines.push("\nAttention:");
@@ -68,6 +69,11 @@ export function renderAmutixNextDigest(input: RenderAmutixNextDigestInput): stri
   if (d.reservations.relevantConflicts.length > 0) {
     lines.push("\nReservation conflicts:");
     for (const r of d.reservations.relevantConflicts.slice(0, 5)) lines.push(`- ${r.path}: ${r.agent}${r.conflictsWith?.length ? ` (conflicts with ${r.conflictsWith.join(", ")})` : ""}`);
+  }
+
+  if (d.project.topologyRisks.length > 0) {
+    lines.push("\nTeam/workspace topology risks:");
+    for (const r of d.project.topologyRisks.slice(0, 5)) lines.push(`- ${r.severity} ${r.kind}: ${truncatePreview(r.humanAction ? `${r.summary} ${r.humanAction}` : r.summary, 180)}`);
   }
 
   lines.push("\nSafe next pointers:");

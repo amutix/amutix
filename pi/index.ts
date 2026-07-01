@@ -97,6 +97,7 @@ import {
   readTaskComments,
 } from "../core/task-comments";
 import { deriveWorktreePath } from "../core/setup-service";
+import { detectTeamTopologyRisks } from "../core/team-service";
 import {
   projectContextPath,
   readProjectContext,
@@ -535,9 +536,13 @@ export default function (pi: ExtensionAPI) {
     // Availability
     const me = await findById(mySession, myId);
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
+    const risks = await detectTeamTopologyRisks(mySession);
+    const riskText = risks.length > 0
+      ? `\n\nTopology risks:\n${risks.slice(0, 5).map((r) => `  - ${r.severity} ${r.kind}: ${r.summary}`).join("\n")}`
+      : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Prompt/debug preview\n\nShortcuts:\n  /amutix join          Switch project or agent\n  /amutix leave         Leave project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}${riskText}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Prompt/debug preview\n\nShortcuts:\n  /amutix join          Switch project or agent\n  /amutix leave         Leave project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>`,
       "info"
     );
   }

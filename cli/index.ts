@@ -13,6 +13,7 @@ import { serviceGetTaskShowData } from "../core/task-service.ts";
 import { listSessions } from "../core/storage.ts";
 import { readProjectContext } from "../core/project-context.ts";
 import { readWaysOfWorking } from "../core/ways-of-working.ts";
+import { detectTeamTopologyRisks } from "../core/team-service.ts";
 
 // ─── Arg Parsing ─────────────────────────────────────────────
 
@@ -173,7 +174,13 @@ async function main(): Promise<void> {
         const online = isEffectivelyOnline(a) ? "online" : "offline";
         const avail = a.availability ? `, ${a.availability}` : "";
         const role = a.roleName || a.role;
-        console.log(`  ${a.name} (${role}) [${online}${avail}]`);
+        const workspace = a.workspace ? ` workspace=${a.workspace}` : "";
+        console.log(`  ${a.name} (${role}) [${online}${avail}] cwd=${a.cwd}${workspace}`);
+      }
+      const risks = await detectTeamTopologyRisks(s);
+      if (risks.length > 0) {
+        console.log(`\nTopology risks (${risks.length}):`);
+        for (const risk of risks.slice(0, 8)) console.log(`  - ${risk.severity} ${risk.kind}: ${risk.summary}`);
       }
       break;
     }

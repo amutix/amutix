@@ -257,6 +257,11 @@ export async function gatherAgentPromptSections(
       teamContext += `${teamContext ? "\n\n" : ""}${snapshot}`;
     }
 
+    const topologySignals = coordinationSignals.signals.filter((s) => s.kind === "topology-risk").slice(0, 5);
+    if (topologySignals.length > 0) {
+      teamContext += `${teamContext ? "\n\n" : ""}## Team/Workspace Topology Risks\n${topologySignals.map((s) => `- ${s.summary}`).join("\n")}\nInspect with amutix_agent validate-team.`;
+    }
+
     const recentJournal = getRecentEntries(session, 6);
     if (recentJournal.length > 0) {
       const journalLines = recentJournal.map((e) => `- ${formatEntryPreview(e, 180)}`);
@@ -270,6 +275,7 @@ export async function gatherAgentPromptSections(
 - Use \`amutix_next\` as a lightweight read-only state check on wake/resume or when unsure; treat it as pointers to inspect, not a replacement for task comments, reviews, or backlog lifecycle actions.
 - Messages from other agents appear as "[amutix:session/agent (role) · sent Xm ago] message". Treat them as teammate requests; reply with amutix_send to the sender when a direct reply is appropriate.
 - Use amutix_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
+- Use amutix_agent for lead-managed team topology: register/update/list agents, plan/assign workspaces, validate team risks, and request human runtime actions. Workspace assignment is registry intent until the agent actually joins from that cwd.
 - Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.
 - Use amutix_feedback for feedback about amutix itself (tool UX, noisy notifications, confusing defaults, missing affordances). It is global product feedback, not project state.
 

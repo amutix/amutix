@@ -3125,9 +3125,10 @@ describe("CLI read-only commands", () => {
     assert.ok(taskList.includes("CLI visible task"));
   });
 
-  it("renders status", async () => {
+  it("renders status with topology risks", async () => {
     const agentId = newAgentId();
     const now = new Date().toISOString();
+    await writeSessionConfig(session, { mainRepo: "/tmp", createdAt: now });
     await registerAgent(session, {
       id: agentId, name: "CliAgent", session, role: "developer",
       cwd: "/tmp", pid: 1, status: "online", availability: "idle",
@@ -3137,6 +3138,8 @@ describe("CLI read-only commands", () => {
     const out = runCli("status", "--session", session);
     assert.ok(out.includes("CliAgent"));
     assert.ok(out.includes("online"));
+    assert.ok(out.includes("Topology risks"));
+    assert.ok(out.includes("missing-workspace") || out.includes("implementation-in-main-worktree"));
   });
 });
 
@@ -3387,6 +3390,13 @@ describe("Prompt context gatherer", () => {
     assert.ok(sections.workState.includes("Active Task"));
     assert.ok(sections.workState.includes(t.id));
     assert.ok(sections.workState.includes("Active work"));
+  });
+
+  it("includes topology risk pointers in teamContext", async () => {
+    const sections = await gatherAgentPromptSections(agent);
+    assert.ok(sections.teamContext.includes("Team/Workspace Topology Risks"));
+    assert.ok(sections.teamContext.includes("workspace intent"));
+    assert.ok(sections.teamContext.includes("amutix_agent validate-team"));
   });
 
   it("uses getWorkspaceBranch callback for identity; defaults to unknown when omitted", async () => {
@@ -4273,6 +4283,68 @@ describe("amutix_next agent-friendliness cockpit", () => {
     assert.ok(ready.some((entry) => entry.kind === "assigned" && entry.summary.includes("dependencies met")));
     assert.notEqual(attentionSignature(ready), waitingSig);
     cleanupSession(depSession);
+  });
+
+  it("surfaces team topology risks to leads and affected agents", async () => {
+    const topologySession = testSession("next-topology");
+    const now = new Date().toISOString();
+    const leadId = newAgentId();
+    const devId = newAgentId();
+    const otherA = newAgentId();
+    const otherB = newAgentId();
+    const normId = newAgentId();
+    await writeSessionConfig(topologySession, { mainRepo: "/main", createdAt: now });
+    await registerAgent(topologySession, {
+      id: leadId, name: "Lead", session: topologySession, role: "architect", roleName: "lead-architect",
+      cwd: "/main", pid: 1, status: "online", availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(topologySession, {
+      id: devId, name: "Dev", session: topologySession, role: "developer", roleName: "developer",
+      cwd: "/repo", workspace: "/repo-dev", pid: 2, status: "online", availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(topologySession, {
+      id: otherA, name: "OtherA", session: topologySession, role: "developer", roleName: "developer",
+      cwd: "/shared", workspace: "/shared-a", pid: 3, status: "online", availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(topologySession, {
+      id: otherB, name: "OtherB", session: topologySession, role: "developer", roleName: "developer",
+      cwd: "/shared", workspace: "/shared-b", pid: 4, status: "online", availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(topologySession, {
+      id: normId, name: "Norm", session: topologySession, role: "developer", roleName: "developer",
+      cwd: "/normalized/../normalized", workspace: "/normalized", pid: 5, status: "online", availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+
+    const leadResult = await nextTool.execute({ session: topologySession, agentId: leadId, agentName: "Lead", roleName: "lead-architect" }, { full: true });
+    const leadDetails = leadResult.details as {
+      attention: Array<{ kind: string; summary: string }>;
+      project: { topologyRisks: Array<{ kind: string; affectedMe: boolean; humanAction?: string }> };
+      next: Array<{ kind: string }>;
+    };
+    assert.ok(leadResult.text.includes("Team/workspace topology risks"));
+    assert.ok(leadDetails.project.topologyRisks.some((risk) => risk.kind === "shared-cwd"));
+    assert.ok(leadDetails.attention.some((entry) => entry.kind === "topology"));
+    assert.ok(leadDetails.next.some((pointer) => pointer.kind === "topology"));
+
+    const devResult = await nextTool.execute({ session: topologySession, agentId: devId, agentName: "Dev", roleName: "developer" }, { full: true });
+    const devDetails = devResult.details as { project: { topologyRisks: Array<{ kind: string; affectedMe: boolean; humanAction?: string }> } };
+    const mismatch = devDetails.project.topologyRisks.find((risk) => risk.kind === "workspace-cwd-mismatch");
+    assert.ok(mismatch?.affectedMe);
+    assert.ok(mismatch?.humanAction?.includes("open a new terminal"));
+    assert.equal(devDetails.project.topologyRisks.some((risk) => risk.kind === "shared-cwd"), false);
+
+    const normResult = await nextTool.execute({ session: topologySession, agentId: normId, agentName: "Norm", roleName: "developer" }, { full: true });
+    const normDetails = normResult.details as { project: { topologyRisks: Array<{ kind: string }> } };
+    assert.equal(normDetails.project.topologyRisks.some((risk) => risk.kind === "workspace-cwd-mismatch"), false);
+
+    const focusDigest = await computeAttentionDigest(topologySession, devId, { attentionPending: false });
+    assert.ok(focusDigest.some((entry) => entry.kind === "topology"));
+    assert.equal(shouldDeliverAttention({
+      digest: focusDigest,
+      signature: attentionSignature(focusDigest),
+      availability: "focus",
+    }), false);
+    cleanupSession(topologySession);
   });
 
   it("digest is read-only and state-derived", async () => {
