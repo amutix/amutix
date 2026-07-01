@@ -209,6 +209,16 @@ import {
   deriveWorktreePath,
 } from "../core/setup-service.ts";
 import {
+  detectTeamTopologyRisks,
+  getTeamTopology,
+  planAgentWorkspace,
+  planWorkspace,
+  updateAgentTopology,
+  validateAgentTopologyUpdate,
+  workspaceAssignmentNotice,
+  workspaceHumanActionText,
+} from "../core/team-service.ts";
+import {
   renderTaskListRow,
   renderTaskDetails,
   renderProgressSummary,
@@ -1670,6 +1680,112 @@ describe("Setup/workspace helpers", () => {
     assert.equal(plan.recipientName, "Developer");
     assert.match(plan.message.message, /Assigned: TASK-01 — Build it/);
     assert.equal(plan.message.requiresAttention, true);
+  });
+});
+
+describe("Team topology and workspace planning services", () => {
+  const session = testSession("team-topology");
+  after(() => cleanupSession(session));
+
+  it("updates agent topology metadata with role validation", async () => {
+    const now = new Date().toISOString();
+    await addRole(session, { name: "developer", instructions: "Build software" });
+    const id = newAgentId();
+    await registerAgent(session, {
+      id, name: "Developer", session, role: "developer", cwd: "/repo", pid: 0,
+      status: "offline", registeredAt: now, lastHeartbeat: now,
+    });
+
+    await assert.rejects(
+      validateAgentTopologyUpdate(session, { roleName: "missing" }),
+      /Role "missing" not found/,
+    );
+
+    const updated = await updateAgentTopology(session, "Developer", {
+      roleName: "developer",
+      model: "anthropic/claude-sonnet-4",
+      workspace: "/repo-developer",
+      cwd: "/repo-developer",
+      statusMessage: "ready",
+    });
+    assert.equal(updated.roleName, "developer");
+    assert.equal(updated.workspace, "/repo-developer");
+    assert.equal(updated.model, "anthropic/claude-sonnet-4");
+  });
+
+  it("projects team topology with active work and detects workspace risks", async () => {
+    const now = new Date().toISOString();
+    await writeSessionConfig(session, { mainRepo: "/repo", createdAt: now });
+    const devA = newAgentId();
+    const devB = newAgentId();
+    const stale = newAgentId();
+    await registerAgent(session, {
+      id: devA, name: "DevA", session, role: "developer", roleName: "developer",
+      cwd: "/repo", workspace: "/repo", pid: 101, status: "online", availability: "working",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(session, {
+      id: devB, name: "DevB", session, role: "developer", roleName: "developer",
+      cwd: "/repo", workspace: "/repo", pid: 102, status: "online", availability: "idle",
+      registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(session, {
+      id: stale, name: "Stale", session, role: "developer", roleName: "developer",
+      cwd: "/stale", pid: 0, status: "offline", registeredAt: now, lastHeartbeat: now,
+    });
+    await addTask(session, {
+      title: "Implement feature", status: "in-progress", assignee: "DevA", assigneeId: devA,
+      createdBy: "Lead", createdAt: now, updatedAt: now,
+    });
+    await reserve(session, ["src/old.ts"], stale, "Stale", "TASK-99: stale edit");
+
+    const topology = await getTeamTopology(session);
+    assert.equal(topology.mainRepo, "/repo");
+    assert.equal(topology.agents.find((a) => a.id === devA)!.work.active[0]!.title, "Implement feature");
+
+    const risks = await detectTeamTopologyRisks(session);
+    assert.ok(risks.some((risk) => risk.kind === "shared-cwd" && risk.severity === "high"));
+    assert.ok(risks.some((risk) => risk.kind === "shared-workspace"));
+    assert.ok(risks.some((risk) => risk.kind === "implementation-in-main-worktree" && risk.agentIds.includes(devA)));
+    assert.ok(risks.some((risk) => risk.kind === "missing-workspace" && risk.agentIds.includes(stale)));
+    assert.ok(risks.some((risk) => risk.kind === "stale-reservation" && risk.reservationPath === "src/old.ts"));
+  });
+
+  it("plans workspaces with branch/path conflict detection and human action text", async () => {
+    const plan = planWorkspace({
+      repoPath: "/work/amutix",
+      agentName: "Developer 2",
+      existingPaths: ["/work/amutix-developer-2"],
+      existingBranches: ["agent/developer-2"],
+      existingWorktreePaths: ["/work/amutix-other"],
+    });
+    assert.equal(plan.wsPath, "/work/amutix-developer-2");
+    assert.equal(plan.branchName, "agent/developer-2");
+    assert.deepEqual(plan.conflicts.map((c) => c.kind).sort(), ["branch", "path"]);
+    assert.match(plan.commands[0]!, /git -C/);
+    assert.match(workspaceHumanActionText("Developer 2", plan.wsPath, "proj"), /open a new terminal/);
+  });
+
+  it("plans an agent workspace from registry and injected git probes", async () => {
+    const probeSession = testSession("team-plan-probe");
+    const now = new Date().toISOString();
+    await writeSessionConfig(probeSession, { mainRepo: "/repo", createdAt: now });
+    const id = newAgentId();
+    await registerAgent(probeSession, {
+      id, name: "Dev", session: probeSession, role: "developer", cwd: "/repo", pid: 0,
+      status: "offline", registeredAt: now, lastHeartbeat: now,
+    });
+    const exec: Parameters<typeof planAgentWorkspace>[2] extends { exec?: infer E } ? NonNullable<E> : never = async (_cmd, args) => {
+      if (args.includes("worktree")) return { code: 0, stdout: "worktree /repo\nworktree /repo-dev\n" };
+      if (args.includes("for-each-ref")) return { code: 0, stdout: "main\nagent/dev\n" };
+      return { code: 0, stdout: "" };
+    };
+    const plan = await planAgentWorkspace(probeSession, "Dev", { exec });
+    assert.equal(plan.branchName, "agent/dev");
+    assert.ok(plan.conflicts.some((c) => c.kind === "branch"));
+    assert.ok(plan.conflicts.some((c) => c.kind === "worktree"));
+    assert.match(workspaceAssignmentNotice((await findById(probeSession, id))!, plan.wsPath, probeSession), /workspace intent/);
+    cleanupSession(probeSession);
   });
 });
 

@@ -22,6 +22,7 @@ export * from "./roles";
 export * from "./prompt-assembly";
 export * from "./notification-service";
 export * from "./setup-service";
+export * from "./team-service";
 export * from "./prompt-context";
 export * from "./attention";
 export * from "./next";
